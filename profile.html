@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Account Settings</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="profile-body">
+  <div class="account-widget" id="accountWidget">
+    <button class="user-button" id="userButton" aria-label="Abrir menu do usuário" aria-haspopup="true" aria-expanded="false">
+      <span class="user-icon" aria-hidden="true"></span>
+    </button>
+    <div class="account-dropdown" id="accountDropdown" hidden></div>
+  </div>
+
+  <main class="profile-page">
+    <section class="settings-shell" aria-labelledby="profileTitle">
+      <div class="settings-hero">
+        <div>
+          <p class="settings-kicker">Daily Planner</p>
+          <h1 id="profileTitle">Account Settings</h1>
+          <p class="settings-copy">Seu cantinho para deixar a conta com a sua cara.</p>
+        </div>
+        <a class="settings-back" href="index.html">Voltar ao planner</a>
+      </div>
+
+      <form class="settings-card" id="profileSettingsForm">
+        <div class="settings-avatar-wrap">
+          <button class="profile-avatar" id="profileAvatarButton" type="button" aria-label="Alterar foto de perfil">
+            <img id="profileAvatarImage" alt="" hidden />
+            <span id="profileAvatarInitials">?</span>
+          </button>
+          <input type="file" id="profileAvatarInput" accept="image/*" hidden />
+        </div>
+
+        <div class="settings-grid">
+          <label>
+            Nome
+            <input type="text" id="profileNameInput" autocomplete="name" required readonly />
+          </label>
+          <label>
+            Email
+            <span class="field-action-wrap email-input-wrap">
+              <input type="email" id="profileEmailInput" autocomplete="email" required readonly />
+              <button class="email-warning-btn" id="emailWarningBtn" type="button" aria-label="Confirmar email" title="Confirmar email" hidden>
+                <span class="warning-triangle" aria-hidden="true"></span>
+              </button>
+              <button class="field-edit-btn" id="emailEditBtn" type="button" aria-label="Editar email" title="Editar email">✎</button>
+            </span>
+          </label>
+          <label>
+            Password
+            <span class="field-action-wrap">
+              <input type="text" id="profilePasswordInput" value="********" readonly />
+              <button class="field-edit-btn" id="passwordEditBtn" type="button" aria-label="Editar senha" title="Editar senha">✎</button>
+            </span>
+          </label>
+        </div>
+
+        <p class="form-message" id="profileMessage" aria-live="polite"></p>
+        <div class="settings-actions">
+          <button class="ghost" type="button" id="profileResetBtn">Cancelar</button>
+          <button class="primary" type="submit" id="profileMainActionBtn">Editar</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <!-- Login -->
+  <div class="modal" id="loginModal" hidden>
+    <form class="modal-content auth-modal" id="loginForm">
+      <header><h3>Log In</h3><button class="close" type="button" data-close>×</button></header>
+      <label for="loginEmail">Email</label>
+      <input type="email" id="loginEmail" autocomplete="email" required />
+      <label for="loginPassword">Senha</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" required />
+      <p class="form-message" id="loginMessage" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="ghost" type="button" data-close>Cancelar</button>
+        <button class="primary" type="submit">Entrar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Criar conta -->
+  <div class="modal" id="signupModal" hidden>
+    <form class="modal-content auth-modal" id="signupForm">
+      <header><h3>Create Account</h3><button class="close" type="button" data-close>×</button></header>
+      <label for="signupName">Nome</label>
+      <input type="text" id="signupName" autocomplete="name" required />
+      <label for="signupEmail">Email</label>
+      <input type="email" id="signupEmail" autocomplete="email" required />
+      <label for="signupPassword">Senha</label>
+      <input type="password" id="signupPassword" autocomplete="new-password" required />
+      <p class="form-message" id="signupMessage" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="ghost" type="button" data-close>Cancelar</button>
+        <button class="primary" type="submit">Criar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Confirmar email -->
+  <div class="modal" id="emailConfirmModal" hidden>
+    <form class="modal-content auth-modal" id="emailConfirmForm">
+      <header><h3>Confirmar email</h3><button class="close" type="button" data-close>×</button></header>
+      <label for="emailConfirmInput">Digite seu email novamente</label>
+      <input type="email" id="emailConfirmInput" autocomplete="email" required />
+      <p class="form-message" id="emailConfirmMessage" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="primary" type="submit">confirmar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Editar email -->
+  <div class="modal" id="emailEditModal" hidden>
+    <form class="modal-content auth-modal" id="emailEditForm">
+      <header><h3>Editar email</h3><button class="close" type="button" data-close>×</button></header>
+      <label for="newEmailInput">Novo email</label>
+      <input type="email" id="newEmailInput" autocomplete="email" required />
+      <label for="newEmailCodeInput" id="newEmailCodeLabel" hidden>Código enviado</label>
+      <input type="text" id="newEmailCodeInput" inputmode="numeric" maxlength="6" placeholder="000000" hidden />
+      <p class="form-message" id="emailEditMessage" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="primary" type="submit" id="emailEditSubmitBtn">confirmar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Editar senha -->
+  <div class="modal" id="passwordEditModal" hidden>
+    <form class="modal-content auth-modal" id="passwordEditForm">
+      <header><h3>Editar senha</h3><button class="close" type="button" data-close>×</button></header>
+
+      <div id="passwordEmailStep">
+        <label for="passwordEmailInput">Confirme seu email</label>
+        <input type="email" id="passwordEmailInput" autocomplete="email" required />
+      </div>
+
+      <div id="passwordCodeStep" hidden>
+        <label for="passwordCodeInput">Código enviado</label>
+        <input type="text" id="passwordCodeInput" inputmode="numeric" maxlength="6" placeholder="000000" />
+      </div>
+
+      <div id="passwordNewStep" hidden>
+        <label for="newPasswordInput">New password</label>
+        <input type="password" id="newPasswordInput" autocomplete="new-password" />
+        <label for="confirmPasswordInput">Confirm password</label>
+        <input type="password" id="confirmPasswordInput" autocomplete="new-password" />
+      </div>
+
+      <p class="form-message" id="passwordEditMessage" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="primary" type="submit" id="passwordEditSubmitBtn">Enviar código</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Ajustar avatar -->
+  <div class="modal" id="avatarCropModal" hidden>
+    <div class="modal-content avatar-crop-modal">
+      <header><h3>Ajustar imagem</h3><button class="close" type="button" data-close>×</button></header>
+      <div class="avatar-crop-frame" id="avatarCropFrame" aria-label="Mover imagem do avatar">
+        <img id="avatarCropImage" alt="" draggable="false" />
+        <span class="avatar-move-cue" aria-hidden="true">↕</span>
+      </div>
+      <div class="modal-actions avatar-crop-actions">
+        <button class="ghost" type="button" data-close>Cancelar</button>
+        <button class="primary" type="button" id="avatarCropConfirm">confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="notificationsModal" hidden>
+    <div class="modal-content auth-modal notification-modal">
+      <header><h3>Notifications</h3><button class="close" type="button" data-close>×</button></header>
+      <label class="checkbox-row" for="browserNotificationsInput">
+        <input type="checkbox" id="browserNotificationsInput" />
+        <span>receber notificacoes no navegador</span>
+      </label>
+      <p class="form-message" id="notificationsMessage" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

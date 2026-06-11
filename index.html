@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daily Planner</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="account-widget" id="accountWidget">
+    <button class="user-button" id="userButton" aria-label="Abrir menu do usuário" aria-haspopup="true" aria-expanded="false">
+      <span class="user-icon" aria-hidden="true"></span>
+    </button>
+    <div class="account-dropdown" id="accountDropdown" hidden></div>
+  </div>
+
+  <main class="app planner-app">
+    <!------------------------------------------ Carrossel circular de dias ---------------------------------->
+    <section class="days-carousel" aria-label="Seletor de dias">
+      <div class="carousel-month" id="carouselMonthYear"></div>
+      <div class="days-track">
+        <button class="day" data-offset="-2"></button>
+        <button class="day" data-offset="-1"></button>
+        <button class="day selected" data-offset="0" id="centerDay"></button>
+        <button class="day" data-offset="1"></button>
+        <button class="day" data-offset="2"></button>
+      </div>
+    </section>
+
+    <div class="frame">
+      <!---------------------------------------- Coluna To-Do ------------------------------------------>
+      <aside class="todo">
+        <h2>To-Do</h2>
+        <ul id="todoList"></ul>
+        <button id="addTaskBtn" class="add-task">add task</button>
+      </aside>
+
+      <!-- Timeline central -->
+      <div class="timeline-column">
+        <section class="timeline" id="timeline"></section>
+        <button id="addTimelineTaskBtn" class="add-task timeline-add-task" type="button">add task</button>
+      </div>
+
+      <!----------------------- Coluna direita: música + pomodoro ------------------------------------------>
+      <aside class="side">
+        <div class="card music-card">
+          <h3>Música</h3>
+          <p id="musicStatus">Conecte Spotify, Apple Music ou YouTube Music para tocar sua playlist.</p>
+          <button class="ghost" id="musicConnectBtn" type="button">Conectar</button>
+          <div class="music-embed" id="musicEmbed" hidden></div>
+        </div>
+        <div class="card pomodoro-card" id="pomodoroCard">
+          <h3>Pomodoro</h3>
+          <div class="pomo-stage" id="pomoStage">
+            <div class="pomo-progress-box" id="pomoProgressBox">
+              <svg class="pomo-progress-svg" viewBox="0 0 100 70" aria-hidden="true">
+                <path class="pomo-track-path" d="M 50 1 H 92 Q 99 1 99 8 V 62 Q 99 69 92 69 H 8 Q 1 69 1 62 V 8 Q 1 1 8 1 H 50" pathLength="100"></path>
+                <path class="pomo-progress-path" id="pomoProgressPath" d="M 50 1 H 92 Q 99 1 99 8 V 62 Q 99 69 92 69 H 8 Q 1 69 1 62 V 8 Q 1 1 8 1 H 50" pathLength="100"></path>
+                <circle class="pomo-guide" id="pomoGuide" cx="50" cy="1" r="3"></circle>
+              </svg>
+              <div class="pomo-art" id="pomoArt"></div>
+              <input class="pomo-display" id="pomoDisplay" value="25:00" inputmode="numeric" aria-label="Tempo do pomodoro" />
+            </div>
+          </div>
+          <div class="pomo-mode" id="pomoMode">Focus Time</div>
+          <div class="pomo-actions">
+            <button id="pomoToggle" class="icon-btn" aria-label="Iniciar" title="Iniciar">
+              <img id="pomoToggleIcon" src="images/play.png" alt="" aria-hidden="true" />
+            </button>
+            <button id="pomoStop" class="icon-btn ghost" aria-label="Parar" title="Parar">
+              <img src="images/stop.png" alt="" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!------------------------------------------ Pop-up calendário ------------------------------------------>
+  <div class="modal" id="calendarModal" hidden>
+    <div class="modal-content calendar">
+      <header>
+        <button id="monthYearBtn" class="month-year">mês - ano</button>
+        <div class="calendar-nav">
+          <button class="calendar-arrow" id="calPrevMonth" type="button" aria-label="Mês anterior">‹</button>
+          <h3 id="calTitle">Junho</h3>
+          <button class="calendar-arrow" id="calNextMonth" type="button" aria-label="Próximo mês">›</button>
+        </div>
+        <button class="close" data-close>×</button>
+      </header>
+      <div class="weekdays"><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span><span>D</span></div>
+      <div class="days-grid" id="daysGrid"></div>
+    </div>
+  </div>
+
+  <!-------------------------- Pop-up roleta dia/mês/ano ------------------------------------------>
+  <div class="modal" id="wheelModal" hidden>
+    <div class="modal-content wheel-modal">
+      <header><h3>Escolher data</h3><button class="close" data-close>×</button></header>
+      <div class="wheels">
+        <div class="wheel" id="dayWheel"></div>
+        <div class="wheel" id="monthWheel"></div>
+        <div class="wheel" id="yearWheel"></div>
+      </div>
+      <button id="wheelConfirm" class="primary">Confirmar</button>
+    </div>
+  </div>
+
+  <!------------------------------------------ Pop-up editar task ------------------------------------------>
+  <div class="modal" id="editModal" hidden>
+    <div class="modal-content edit-modal">
+      <div class="tabs">
+        <button class="tab active" data-tab="editar">Editar</button>
+        <button class="tab" data-tab="design">Design</button>
+      </div>
+      <div class="tab-content" data-content="editar">
+        <label>Título</label>
+        <input type="text" id="editTitle" />
+        <label>Descrição</label>
+        <textarea id="editDesc" rows="4"></textarea>
+        <label>Horário</label>
+        <input type="time" id="editTime" />
+      </div>
+      <div class="tab-content" data-content="design" hidden>
+        <label>Cor do texto</label>
+        <input type="color" id="editColor" value="#000000" />
+        <label>Cor de fundo</label>
+        <input type="color" id="editBg" value="#ffffff" />
+      </div>
+      <div class="modal-actions">
+        <button class="ghost" data-close>Cancelar</button>
+        <button id="editSave" class="primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="musicModal" hidden>
+    <div class="modal-content music-modal">
+      <header><h3>Escolher música</h3><button class="close" type="button" data-close>×</button></header>
+      <div class="music-provider-grid" id="musicProviderGrid">
+        <button type="button" class="music-provider active" data-music-provider="spotify">
+          <span>Spotify</span>
+        </button>
+        <button type="button" class="music-provider" data-music-provider="apple">
+          <span>Apple Music</span>
+        </button>
+        <button type="button" class="music-provider" data-music-provider="youtube">
+          <span>YouTube Music</span>
+        </button>
+      </div>
+      <div class="music-panel" id="musicPanel"></div>
+    </div>
+  </div>
+
+  <!----------------------------------------------- Login ----------------------------------------------->
+  <div class="modal" id="loginModal" hidden>
+    <form class="modal-content auth-modal" id="loginForm">
+      <header><h3>Log In</h3><button class="close" type="button" data-close>×</button></header>
+      <label for="loginEmail">Email</label>
+      <input type="email" id="loginEmail" autocomplete="email" required />
+      <label for="loginPassword">Senha</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" required />
+      <p class="form-message" id="loginMessage" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="ghost" type="button" data-close>Cancelar</button>
+        <button class="primary" type="submit">Entrar</button>
+      </div>
+    </form>
+  </div>
+
+  <!------------------------------------------ Criar conta ------------------------------------------>
+  <div class="modal" id="signupModal" hidden>
+    <form class="modal-content auth-modal" id="signupForm">
+      <header><h3>Create Account</h3><button class="close" type="button" data-close>×</button></header>
+      <label for="signupName">Nome</label>
+      <input type="text" id="signupName" autocomplete="name" required />
+      <label for="signupEmail">Email</label>
+      <input type="email" id="signupEmail" autocomplete="email" required />
+      <label for="signupPassword">Senha</label>
+      <input type="password" id="signupPassword" autocomplete="new-password" required />
+      <p class="form-message" id="signupMessage" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="ghost" type="button" data-close>Cancelar</button>
+        <button class="primary" type="submit">Criar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal" id="notificationsModal" hidden>
+    <div class="modal-content auth-modal notification-modal">
+      <header><h3>Notifications</h3><button class="close" type="button" data-close>×</button></header>
+      <label class="checkbox-row" for="browserNotificationsInput">
+        <input type="checkbox" id="browserNotificationsInput" />
+        <span>receber notificacoes no navegador</span>
+      </label>
+      <p class="form-message" id="notificationsMessage" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <div class="todo-context-menu" id="todoContextMenu" hidden>
+    <button class="todo-delete-btn" id="todoDeleteBtn" type="button" aria-label="Excluir task" title="Excluir task">
+      <img src="images/trashcan.png" alt="" aria-hidden="true" />
+    </button>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
