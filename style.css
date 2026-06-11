@@ -29,6 +29,23 @@ body.profile-body {
   max-width: none;
   margin: 0;
 }
+body:not(.profile-body) {
+  overflow-x: hidden;
+}
+@media (min-width: 901px) {
+  body:not(.profile-body) {
+    --planner-scale: .8;
+    --planner-offset: -12.5%;
+    --planner-width: 125%;
+    padding: 27px clamp(19px, 2.4vw, 43px);
+  }
+  body:not(.profile-body) .planner-app {
+    margin-left: var(--planner-offset);
+    transform: scale(var(--planner-scale));
+    transform-origin: top center;
+    width: var(--planner-width);
+  }
+}
 
 /*---------------------------------------------- Usuário ---------------------------------------------------*/
 .account-widget {
@@ -36,6 +53,14 @@ body.profile-body {
   top: 18px;
   right: 26px;
   z-index: 95;
+}
+@media (min-width: 901px) {
+  body:not(.profile-body) .account-widget {
+    right: 21px;
+    top: 14px;
+    transform: scale(var(--planner-scale));
+    transform-origin: top right;
+  }
 }
 .user-button {
   width: 70px;
