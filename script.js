@@ -1,11 +1,29 @@
+import {
+  auth,
+  db,
+  googleProvider,
+  signInWithPopup,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  doc,
+  collection,
+  setDoc,
+  onSnapshot,
+  deleteDoc,
+  serverTimestamp
+} from "./firebase.js";
+
 // ===== Helpers =====
 const $ = (selector, parent = document) => parent.querySelector(selector);
 const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector)];
 const pad = (value) => String(value).padStart(2, "0");
 
-const DB_KEY = "dailyPlannerDbV1";
 const SESSION_KEY = "dailyPlannerSessionV1";
 const GUEST_KEY = "dailyPlannerGuestDataV1";
+const FIREBASE_CACHE_PREFIX = "dailyPlannerFirebaseCacheV1";
+const POMODORO_CACHE_PREFIX = "dailyPlannerPomodoroSessionsV1";
 const NOTIFICATION_SETTINGS_KEY = "dailyPlannerNotificationSettingsV1";
 const WHEEL_ITEM_HEIGHT = 40;
 const YEAR_START = 1900;
@@ -31,6 +49,10 @@ const MUSIC_TOKENS_KEY = "dailyPlannerMusicTokensV1";
 
 let selectedMusicProvider = "spotify";
 let youtubeTokenClient = null;
+let profileUnsubscribe = null;
+let tasksUnsubscribe = null;
+let pomodoroUnsubscribe = null;
+let authLoadRun = 0;
 
 const monthNames = [
   "Janeiro",
@@ -49,11 +71,51 @@ const monthNames = [
 
 const monthShortNames = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
+const TREE_SPRITE_COLUMNS = 6;
+const TREE_SPRITE_ROWS = 4;
+const TREE_SPRITE_COUNT = 24;
+
+const FOREST_TREE_POSITIONS = [
+  { x: 50, y: 24, size: 74 },
+  { x: 40, y: 31, size: 66 },
+  { x: 60, y: 31, size: 68 },
+  { x: 31, y: 39, size: 63 },
+  { x: 49, y: 40, size: 76 },
+  { x: 68, y: 40, size: 64 },
+  { x: 24, y: 49, size: 70 },
+  { x: 41, y: 50, size: 62 },
+  { x: 58, y: 50, size: 72 },
+  { x: 76, y: 50, size: 64 },
+  { x: 17, y: 60, size: 62 },
+  { x: 34, y: 61, size: 74 },
+  { x: 51, y: 62, size: 66 },
+  { x: 66, y: 62, size: 75 },
+  { x: 83, y: 61, size: 63 },
+  { x: 27, y: 72, size: 66 },
+  { x: 43, y: 73, size: 72 },
+  { x: 58, y: 74, size: 65 },
+  { x: 74, y: 73, size: 70 },
+  { x: 50, y: 84, size: 76 },
+  { x: 15, y: 44, size: 55 },
+  { x: 85, y: 43, size: 56 },
+  { x: 21, y: 69, size: 58 },
+  { x: 79, y: 69, size: 58 },
+  { x: 37, y: 83, size: 60 },
+  { x: 63, y: 83, size: 60 },
+  { x: 30, y: 30, size: 54 },
+  { x: 70, y: 30, size: 54 },
+];
+
 const state = {
   currentDate: new Date(),
   currentUserEmail: null,
+  currentUser: null,
+  firebaseUser: null,
+  authReady: false,
   todos: [],
+  todosByDate: {},
   tasksByDate: {},
+  pomodoroSessions: [],
 };
 
 function clone(value) {
@@ -109,30 +171,33 @@ function removeJson(key) {
   }
 }
 
-// ===== Local account database =====
+// ===== Planner data =====
 function defaultTodos() {
+  const now = new Date().toISOString();
   return [
-    { text: "texto", done: false },
-    { text: "texto", done: false },
-    { text: "texto", done: false },
-    { text: "texto", done: false },
-    { text: "texto", done: false },
+    { id: createTaskId(), text: "texto", done: false, createdAt: now, updatedAt: now },
+    { id: createTaskId(), text: "texto", done: false, createdAt: now, updatedAt: now },
+    { id: createTaskId(), text: "texto", done: false, createdAt: now, updatedAt: now },
+    { id: createTaskId(), text: "texto", done: false, createdAt: now, updatedAt: now },
+    { id: createTaskId(), text: "texto", done: false, createdAt: now, updatedAt: now },
   ];
 }
 
 function defaultTasks() {
+  const now = new Date().toISOString();
   return [
-    { id: 1, time: "14:30", text: "texto", color: "#000000", bg: "transparent", desc: "", done: false },
-    { id: 2, time: "14:30", text: "texto", color: "#000000", bg: "transparent", desc: "", done: false },
-    { id: 3, time: "16:46", text: "texto", color: "#000000", bg: "transparent", desc: "", done: false },
-    { id: 4, time: "20:00", text: "texto", color: "#000000", bg: "transparent", desc: "", done: false },
+    { id: createTaskId(), time: "14:30", text: "texto", color: "#000000", bg: "transparent", desc: "", done: false, createdAt: now, updatedAt: now },
+    { id: createTaskId(), time: "14:30", text: "texto", color: "#000000", bg: "transparent", desc: "", done: false, createdAt: now, updatedAt: now },
+    { id: createTaskId(), time: "16:46", text: "texto", color: "#000000", bg: "transparent", desc: "", done: false, createdAt: now, updatedAt: now },
+    { id: createTaskId(), time: "20:00", text: "texto", color: "#000000", bg: "transparent", desc: "", done: false, createdAt: now, updatedAt: now },
   ];
 }
 
 function defaultPlannerData() {
+  const currentDate = dateKey(new Date());
   return {
-    currentDate: dateKey(new Date()),
-    todos: defaultTodos(),
+    currentDate,
+    todosByDate: {},
     tasksByDate: {},
   };
 }
@@ -141,46 +206,54 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function readDb() {
-  const db = readJson(DB_KEY, { users: [] });
-  return db && Array.isArray(db.users) ? db : { users: [] };
-}
-
-function writeDb(db) {
-  writeJson(DB_KEY, db);
-}
-
-function getCurrentUser(db = readDb()) {
-  if (!state.currentUserEmail) return null;
-  return db.users.find((user) => user.email === state.currentUserEmail) || null;
+function getCurrentUser() {
+  return state.currentUser;
 }
 
 function syncSession() {
-  const email = normalizeEmail(readJson(SESSION_KEY, ""));
-  const db = readDb();
-  const user = db.users.find((item) => item.email === email);
-  state.currentUserEmail = user ? user.email : null;
-  if (!user) removeJson(SESSION_KEY);
+  const cached = readJson(SESSION_KEY, null);
+  state.currentUser = cached?.uid ? cached : null;
+  state.currentUserEmail = state.currentUser?.email || null;
 }
 
-function setSession(email) {
-  state.currentUserEmail = email ? normalizeEmail(email) : null;
-  if (state.currentUserEmail) {
-    writeJson(SESSION_KEY, state.currentUserEmail);
+function setSession(user) {
+  if (user?.uid) {
+    state.currentUser = user;
+    state.currentUserEmail = user.email || null;
+    writeJson(SESSION_KEY, user);
   } else {
+    state.currentUser = null;
+    state.currentUserEmail = null;
     removeJson(SESSION_KEY);
   }
 }
 
-function normalizeTask(task, index) {
+function normalizeTodo(todo, index) {
+  const now = new Date().toISOString();
   return {
-    id: Number.isFinite(Number(task?.id)) ? Number(task.id) : Date.now() + index,
+    id: typeof todo?.id === "string" ? todo.id : createTaskId(`todo-${index}`),
+    text: typeof todo?.text === "string" ? todo.text : "",
+    done: Boolean(todo?.done),
+    order: Number.isFinite(Number(todo?.order)) ? Number(todo.order) : index,
+    createdAt: typeof todo?.createdAt === "string" ? todo.createdAt : now,
+    updatedAt: typeof todo?.updatedAt === "string" ? todo.updatedAt : now,
+    _firestoreExists: Boolean(todo?._firestoreExists),
+  };
+}
+
+function normalizeTask(task, index) {
+  const now = new Date().toISOString();
+  return {
+    id: typeof task?.id === "string" ? task.id : createTaskId(`timeline-${index}`),
     time: typeof task?.time === "string" ? task.time : "14:30",
     text: typeof task?.text === "string" ? task.text : "texto",
     color: typeof task?.color === "string" ? task.color : "#000000",
     bg: typeof task?.bg === "string" ? task.bg : "transparent",
     desc: typeof task?.desc === "string" ? task.desc : "",
     done: Boolean(task?.done),
+    createdAt: typeof task?.createdAt === "string" ? task.createdAt : now,
+    updatedAt: typeof task?.updatedAt === "string" ? task.updatedAt : now,
+    _firestoreExists: Boolean(task?._firestoreExists),
   };
 }
 
@@ -189,7 +262,18 @@ function normalizePlannerData(data) {
   if (!data || typeof data !== "object") return fallback;
 
   const parsedDate = parseDateKey(data.currentDate);
+  const todosByDate = {};
   const tasksByDate = {};
+
+  if (data.todosByDate && typeof data.todosByDate === "object") {
+    Object.entries(data.todosByDate).forEach(([key, todos]) => {
+      if (parseDateKey(key) && Array.isArray(todos)) {
+        todosByDate[key] = todos.map(normalizeTodo).sort((a, b) => (a.order || 0) - (b.order || 0));
+      }
+    });
+  } else if (Array.isArray(data.todos)) {
+    todosByDate[fallback.currentDate] = data.todos.map(normalizeTodo);
+  }
 
   if (data.tasksByDate && typeof data.tasksByDate === "object") {
     Object.entries(data.tasksByDate).forEach(([key, tasks]) => {
@@ -201,12 +285,7 @@ function normalizePlannerData(data) {
 
   return {
     currentDate: parsedDate ? dateKey(parsedDate) : fallback.currentDate,
-    todos: Array.isArray(data.todos)
-      ? data.todos.map((todo) => ({
-          text: typeof todo?.text === "string" ? todo.text : "",
-          done: Boolean(todo?.done),
-        }))
-      : fallback.todos,
+    todosByDate,
     tasksByDate,
   };
 }
@@ -214,50 +293,495 @@ function normalizePlannerData(data) {
 function snapshotPlannerData() {
   return {
     currentDate: dateKey(state.currentDate),
-    todos: clone(state.todos),
+    todosByDate: clone(state.todosByDate),
     tasksByDate: clone(state.tasksByDate),
   };
 }
 
-function loadPlannerData() {
-  const db = readDb();
-  const user = getCurrentUser(db);
-  const stored = user ? user.planner : readJson(GUEST_KEY, null);
+function createCacheKey(uid) {
+  return `${FIREBASE_CACHE_PREFIX}:${uid}`;
+}
+
+function createPomodoroCacheKey(uid = state.currentUser?.uid) {
+  return `${POMODORO_CACHE_PREFIX}:${uid || "guest"}`;
+}
+
+function firestoreProfileRef(uid = state.currentUser?.uid) {
+  return uid ? doc(db, "users", uid, "profile", "main") : null;
+}
+
+function firestoreTasksCollection(uid = state.currentUser?.uid) {
+  return uid ? collection(db, "users", uid, "tasks") : null;
+}
+
+function firestoreTaskRef(taskId, uid = state.currentUser?.uid) {
+  return uid && taskId ? doc(db, "users", uid, "tasks", String(taskId)) : null;
+}
+
+function firestorePomodoroCollection(uid = state.currentUser?.uid) {
+  return uid ? collection(db, "users", uid, "pomodoroSessions") : null;
+}
+
+function firestorePomodoroSessionRef(sessionId, uid = state.currentUser?.uid) {
+  return uid && sessionId ? doc(db, "users", uid, "pomodoroSessions", String(sessionId)) : null;
+}
+
+function timestampToIso(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value.toDate === "function") return value.toDate().toISOString();
+  return "";
+}
+
+function getDateTodos(key = dateKey(state.currentDate)) {
+  if (!Array.isArray(state.todosByDate[key])) {
+    state.todosByDate[key] = defaultTodos();
+  }
+  return state.todosByDate[key];
+}
+
+function syncCurrentTodos() {
+  state.todos = getDateTodos();
+  return state.todos;
+}
+
+function profileFromFirebaseUser(firebaseUser, profile = {}) {
+  const email = firebaseUser?.email || profile.email || "";
+  const displayName = profile.displayName || profile.name || firebaseUser?.displayName || email.split("@")[0] || "";
+  const photoURL = profile.photoURL || profile.avatar || firebaseUser?.photoURL || "";
+  return {
+    uid: firebaseUser?.uid || profile.uid || "",
+    id: firebaseUser?.uid || profile.uid || "",
+    displayName,
+    name: displayName,
+    email,
+    photoURL,
+    avatar: photoURL,
+    emailConfirmed: Boolean(profile.emailConfirmed || firebaseUser?.emailVerified),
+    notifications: { browser: Boolean(profile.notifications?.browser) },
+    createdAt: profile.createdAt || firebaseUser?.metadata?.creationTime || "",
+    updatedAt: profile.updatedAt || "",
+  };
+}
+
+function currentProfilePayload(extra = {}) {
+  const user = getCurrentUser();
+  if (!user) return null;
+  const displayName = user.displayName || user.name || "";
+  const photoURL = user.photoURL || user.avatar || "";
+
+  return {
+    displayName,
+    email: user.email || "",
+    photoURL,
+    uid: user.uid || "",
+    name: displayName,
+    avatar: photoURL,
+    emailConfirmed: Boolean(user.emailConfirmed),
+    notifications: { browser: Boolean(user.notifications?.browser) },
+    updatedAt: serverTimestamp(),
+    ...extra,
+  };
+}
+
+async function saveCurrentProfile(extra = {}) {
+  const ref = firestoreProfileRef();
+  const payload = currentProfilePayload(extra);
+  if (!ref || !payload) return;
+  await setDoc(ref, payload, { merge: true });
+}
+
+function authProfilePayload(firebaseUser) {
+  const profile = profileFromFirebaseUser(firebaseUser);
+  return {
+    displayName: profile.displayName,
+    email: profile.email,
+    photoURL: profile.photoURL,
+    uid: profile.uid,
+    updatedAt: serverTimestamp(),
+  };
+}
+
+async function saveAuthProfile(firebaseUser) {
+  const ref = firestoreProfileRef(firebaseUser?.uid);
+  if (!ref) return;
+  await setDoc(ref, authProfilePayload(firebaseUser), { merge: true });
+}
+
+function primeCurrentProfile(firebaseUser) {
+  const cached = readJson(SESSION_KEY, null);
+  const profile = cached?.uid === firebaseUser.uid ? cached : {};
+  state.firebaseUser = firebaseUser;
+  state.currentUser = profileFromFirebaseUser(firebaseUser, profile);
+  state.currentUserEmail = state.currentUser.email;
+  writeJson(SESSION_KEY, state.currentUser);
+  return state.currentUser;
+}
+
+function localTaskFromFirestoreDoc(taskId, data) {
+  const date = parseDateKey(data?.date) ? data.date : dateKey(new Date());
+  const base = {
+    id: taskId,
+    text: typeof data?.title === "string" ? data.title : "",
+    done: Boolean(data?.completed),
+    createdAt: timestampToIso(data?.createdAt),
+    updatedAt: timestampToIso(data?.updatedAt),
+    _firestoreExists: true,
+  };
+
+  if (data?.kind === "todo") {
+    return {
+      kind: "todo",
+      date,
+      task: normalizeTodo({ ...base, order: data.order }, 0),
+    };
+  }
+
+  return {
+    kind: "timeline",
+    date,
+    task: normalizeTask({
+      ...base,
+      time: typeof data?.time === "string" ? data.time : "14:30",
+      color: typeof data?.color === "string" ? data.color : "#000000",
+      bg: typeof data?.bg === "string" ? data.bg : "transparent",
+      desc: typeof data?.desc === "string" ? data.desc : "",
+    }, 0),
+  };
+}
+
+function plannerDataFromTaskSnapshot(snapshot) {
+  const data = {
+    currentDate: dateKey(state.currentDate),
+    todosByDate: {},
+    tasksByDate: {},
+  };
+
+  snapshot.forEach((taskSnap) => {
+    const local = localTaskFromFirestoreDoc(taskSnap.id, taskSnap.data());
+    if (local.kind === "todo") {
+      (data.todosByDate[local.date] ||= []).push(local.task);
+      return;
+    }
+    (data.tasksByDate[local.date] ||= []).push(local.task);
+  });
+
+  Object.values(data.todosByDate).forEach((todos) => {
+    todos.sort((a, b) => (a.order || 0) - (b.order || 0));
+  });
+
+  return data;
+}
+
+function applyPlannerData(stored, { render = false } = {}) {
   const data = normalizePlannerData(stored);
-  state.currentDate = parseDateKey(data.currentDate) || new Date();
-  state.todos = data.todos;
+  state.currentDate = parseDateKey(data.currentDate) || state.currentDate || new Date();
+  state.todosByDate = data.todosByDate;
   state.tasksByDate = data.tasksByDate;
+  syncCurrentTodos();
+
+  if (render) refreshPlanner();
+}
+
+function loadPlannerData(uid = state.currentUser?.uid) {
+  const stored = uid ? readJson(createCacheKey(uid), null) : readJson(GUEST_KEY, null);
+  applyPlannerData(stored);
+}
+
+function stopRealtimeListeners() {
+  if (typeof profileUnsubscribe === "function") profileUnsubscribe();
+  if (typeof tasksUnsubscribe === "function") tasksUnsubscribe();
+  if (typeof pomodoroUnsubscribe === "function") pomodoroUnsubscribe();
+  profileUnsubscribe = null;
+  tasksUnsubscribe = null;
+  pomodoroUnsubscribe = null;
+}
+
+function subscribeProfileData(firebaseUser) {
+  if (typeof profileUnsubscribe === "function") profileUnsubscribe();
+  const ref = firestoreProfileRef(firebaseUser?.uid);
+  if (!ref) return Promise.resolve(null);
+
+  let firstSnapshot = true;
+  return new Promise((resolve) => {
+    profileUnsubscribe = onSnapshot(ref, (snap) => {
+      const profile = snap.exists() ? snap.data() : {};
+      state.currentUser = profileFromFirebaseUser(firebaseUser, profile);
+      state.currentUserEmail = state.currentUser.email;
+      writeJson(SESSION_KEY, state.currentUser);
+      renderAccountDropdown();
+      renderProfilePage();
+
+      if (firstSnapshot) {
+        firstSnapshot = false;
+        resolve(profile);
+      }
+    }, (error) => {
+      console.error("Profile realtime listener error:", error);
+      if (firstSnapshot) {
+        firstSnapshot = false;
+        resolve(null);
+      }
+    });
+  });
+}
+
+function subscribePlannerData(uid) {
+  if (typeof tasksUnsubscribe === "function") tasksUnsubscribe();
+  const tasksRef = firestoreTasksCollection(uid);
+  if (!tasksRef) return Promise.resolve(null);
+
+  let firstSnapshot = true;
+  return new Promise((resolve) => {
+    tasksUnsubscribe = onSnapshot(tasksRef, (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites && !firstSnapshot) return;
+
+      const data = plannerDataFromTaskSnapshot(snapshot);
+      writeJson(createCacheKey(uid), data);
+      applyPlannerData(data, { render: true });
+
+      if (firstSnapshot) {
+        firstSnapshot = false;
+        resolve(data);
+      }
+    }, (error) => {
+      console.error("Tasks realtime listener error:", error);
+      const cached = readJson(createCacheKey(uid), null);
+      if (cached) applyPlannerData(cached, { render: true });
+
+      if (firstSnapshot) {
+        firstSnapshot = false;
+        resolve(cached);
+      }
+    });
+  });
+}
+
+function sortPomodoroSessions(sessions) {
+  return [...sessions].sort((a, b) => {
+    const dateCompare = String(a.date).localeCompare(String(b.date));
+    if (dateCompare) return dateCompare;
+    return String(a.createdAt).localeCompare(String(b.createdAt));
+  });
+}
+
+function normalizePomodoroSession(session, index = 0) {
+  const now = new Date().toISOString();
+  const parsedDate = parseDateKey(session?.date);
+  const rawMinutes = Number(session?.minutes);
+  const rawDuration = Number(session?.durationSeconds);
+  const minutes = Number.isFinite(rawMinutes) && rawMinutes > 0
+    ? Math.round(rawMinutes)
+    : Math.max(1, Math.round((Number.isFinite(rawDuration) ? rawDuration : pomoFocusTotal) / 60));
+  const durationSeconds = Number.isFinite(rawDuration) && rawDuration > 0
+    ? Math.round(rawDuration)
+    : Math.max(60, minutes * 60);
+  const treeType = Number.isFinite(Number(session?.treeType))
+    ? clamp(Math.floor(Number(session.treeType)), 0, TREE_SPRITE_COUNT - 1)
+    : index % TREE_SPRITE_COUNT;
+
+  return {
+    id: typeof session?.id === "string" && session.id ? session.id : createTaskId(`pomo-${index}`),
+    date: parsedDate ? dateKey(parsedDate) : dateKey(new Date()),
+    minutes,
+    durationSeconds,
+    treeType,
+    createdAt: timestampToIso(session?.createdAt) || (typeof session?.createdAt === "string" ? session.createdAt : now),
+    updatedAt: timestampToIso(session?.updatedAt) || (typeof session?.updatedAt === "string" ? session.updatedAt : now),
+    _firestoreExists: Boolean(session?._firestoreExists),
+  };
+}
+
+function normalizePomodoroSessions(sessions) {
+  if (!Array.isArray(sessions)) return [];
+  return sortPomodoroSessions(sessions.map(normalizePomodoroSession));
+}
+
+function pomodoroSessionsFromSnapshot(snapshot) {
+  const sessions = [];
+  snapshot.forEach((sessionSnap, index) => {
+    sessions.push(normalizePomodoroSession({
+      id: sessionSnap.id,
+      ...sessionSnap.data(),
+      _firestoreExists: true,
+    }, index));
+  });
+  return sortPomodoroSessions(sessions);
+}
+
+function loadPomodoroSessionsFromCache(uid = state.currentUser?.uid) {
+  state.pomodoroSessions = normalizePomodoroSessions(readJson(createPomodoroCacheKey(uid), []));
+}
+
+function savePomodoroSessionsCache(uid = state.currentUser?.uid) {
+  writeJson(createPomodoroCacheKey(uid), normalizePomodoroSessions(state.pomodoroSessions));
+}
+
+function subscribePomodoroSessions(uid) {
+  if (typeof pomodoroUnsubscribe === "function") pomodoroUnsubscribe();
+  const sessionsRef = firestorePomodoroCollection(uid);
+  if (!sessionsRef) return Promise.resolve(null);
+
+  let firstSnapshot = true;
+  return new Promise((resolve) => {
+    pomodoroUnsubscribe = onSnapshot(sessionsRef, (snapshot) => {
+      state.pomodoroSessions = pomodoroSessionsFromSnapshot(snapshot);
+      savePomodoroSessionsCache(uid);
+      renderPomodoroProfile();
+
+      if (firstSnapshot) {
+        firstSnapshot = false;
+        resolve(state.pomodoroSessions);
+      }
+    }, (error) => {
+      console.error("Pomodoro realtime listener error:", error);
+      loadPomodoroSessionsFromCache(uid);
+      renderPomodoroProfile();
+
+      if (firstSnapshot) {
+        firstSnapshot = false;
+        resolve(state.pomodoroSessions);
+      }
+    });
+  });
+}
+
+function pomodoroSessionPayload(session) {
+  return {
+    date: session.date,
+    minutes: session.minutes,
+    durationSeconds: session.durationSeconds,
+    treeType: session.treeType,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+}
+
+async function persistPomodoroSession(session) {
+  const ref = firestorePomodoroSessionRef(session?.id);
+  if (!ref) return;
+  await setDoc(ref, pomodoroSessionPayload(session), { merge: true });
+  session._firestoreExists = true;
+  savePomodoroSessionsCache();
+}
+
+async function recordFocusCompletion() {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const nextIndex = state.pomodoroSessions.length;
+  const session = normalizePomodoroSession({
+    id: createTaskId("pomo"),
+    date: dateKey(now),
+    minutes: Math.max(1, Math.round(pomoFocusTotal / 60)),
+    durationSeconds: pomoFocusTotal,
+    treeType: nextIndex % TREE_SPRITE_COUNT,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  }, nextIndex);
+
+  state.pomodoroSessions = sortPomodoroSessions([
+    ...state.pomodoroSessions.filter((item) => item.id !== session.id),
+    session,
+  ]);
+  savePomodoroSessionsCache();
+  renderPomodoroProfile();
+
+  try {
+    await persistPomodoroSession(session);
+  } catch (error) {
+    console.error("Pomodoro write error:", error);
+  }
+}
+
+function taskPayload(kind, task, taskDate, order = 0) {
+  const now = new Date().toISOString();
+  if (!task.id) task.id = createTaskId(kind);
+  if (!task.createdAt) task.createdAt = now;
+  task.updatedAt = now;
+
+  const payload = {
+    title: task.text || "",
+    date: taskDate,
+    completed: Boolean(task.done),
+    kind,
+    updatedAt: serverTimestamp(),
+  };
+
+  if (!task._firestoreExists) {
+    payload.createdAt = serverTimestamp();
+  }
+
+  if (kind === "todo") {
+    payload.order = order;
+  } else {
+    payload.time = task.time || "14:30";
+    payload.desc = task.desc || "";
+    payload.color = task.color || "#000000";
+    payload.bg = task.bg || "transparent";
+  }
+
+  return payload;
+}
+
+async function persistTaskDocument(kind, task, taskDate, order = 0) {
+  if (!state.currentUser?.uid || !task) return;
+  const ref = firestoreTaskRef(task.id);
+  if (!ref) return;
+  await setDoc(ref, taskPayload(kind, task, taskDate, order), { merge: true });
+  task._firestoreExists = true;
+}
+
+async function deleteTaskDocument(taskId) {
+  const ref = firestoreTaskRef(taskId);
+  if (!ref) return;
+  await deleteDoc(ref);
+}
+
+async function persistSelectedDateTasks() {
+  if (!state.currentUser?.uid) return;
+
+  const key = dateKey(state.currentDate);
+  const todos = getDateTodos(key);
+  const tasks = Array.isArray(state.tasksByDate[key]) ? state.tasksByDate[key] : [];
+
+  await Promise.all([
+    ...todos.map((todo, index) => persistTaskDocument("todo", todo, key, index)),
+    ...tasks.map((task) => persistTaskDocument("timeline", task, key)),
+  ]);
+}
+
+async function persistAllPlannerTasks() {
+  if (!state.currentUser?.uid) return;
+
+  const writes = [];
+  Object.entries(state.todosByDate).forEach(([key, todos]) => {
+    if (parseDateKey(key) && Array.isArray(todos)) {
+      todos.forEach((todo, index) => writes.push(persistTaskDocument("todo", todo, key, index)));
+    }
+  });
+
+  Object.entries(state.tasksByDate).forEach(([key, tasks]) => {
+    if (parseDateKey(key) && Array.isArray(tasks)) {
+      tasks.forEach((task) => writes.push(persistTaskDocument("timeline", task, key)));
+    }
+  });
+
+  await Promise.all(writes);
 }
 
 function persistPlannerData() {
+  syncCurrentTodos();
   const data = snapshotPlannerData();
 
-  if (state.currentUserEmail) {
-    const db = readDb();
-    const user = getCurrentUser(db);
-    if (user) {
-      user.planner = data;
-      writeDb(db);
-      return;
-    }
+  if (state.currentUser?.uid) {
+    writeJson(createCacheKey(state.currentUser.uid), data);
+    persistSelectedDateTasks().catch(() => {
+      // Local cache remains available if Firestore is temporarily unavailable.
+    });
+    return;
   }
 
   writeJson(GUEST_KEY, data);
-}
-
-async function hashPassword(password) {
-  if (window.crypto?.subtle && window.TextEncoder) {
-    const bytes = new TextEncoder().encode(password);
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    return `sha256:${hash}`;
-  }
-  return `plain:${password}`;
-}
-
-async function passwordMatches(storedHash, password) {
-  const hash = await hashPassword(password);
-  return storedHash === hash || storedHash === `plain:${password}`;
 }
 
 function getInitials(user) {
@@ -267,16 +791,14 @@ function getInitials(user) {
   return parts.slice(0, 2).map((part) => part[0].toUpperCase()).join("");
 }
 
-function createUserId() {
-  return window.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
 function updateCurrentUser(mutator) {
-  const db = readDb();
-  const user = getCurrentUser(db);
+  const user = getCurrentUser();
   if (!user) return null;
-  mutator(user, db);
-  writeDb(db);
+  mutator(user);
+  writeJson(SESSION_KEY, user);
+  saveCurrentProfile().catch(() => {
+    // The cached profile keeps the UI usable while Firestore is unavailable.
+  });
   return user;
 }
 
@@ -346,12 +868,15 @@ function renderAccountDropdown() {
     });
     addDropdownButton(dropdown, "Notifications", "", openNotificationsModal);
     addDropdownSeparator(dropdown);
-    addDropdownButton(dropdown, "Logout", "", () => {
+    addDropdownButton(dropdown, "Logout", "", async () => {
       persistPlannerData();
+      await signOut(auth);
       setSession(null);
+      state.firebaseUser = null;
       loadPlannerData();
-      refreshPlanner();
+      loadPomodoroSessionsFromCache();
       closeAccountDropdown();
+      refreshPlanner();
       renderAccountDropdown();
       renderProfilePage();
       if ($(".profile-page")) window.location.href = "index.html";
@@ -398,6 +923,23 @@ function setFormMessage(selector, text, success = false) {
   message.classList.toggle("success", success);
 }
 
+function setPlannerLoading(isLoading, text = "Sincronizando planner...") {
+  let loader = $("#plannerLoading");
+
+  if (!loader && isLoading) {
+    loader = document.createElement("div");
+    loader.id = "plannerLoading";
+    loader.className = "planner-loading";
+    loader.setAttribute("role", "status");
+    loader.setAttribute("aria-live", "polite");
+    document.body.appendChild(loader);
+  }
+
+  if (!loader) return;
+  loader.textContent = text;
+  loader.hidden = !isLoading;
+}
+
 function stopTitleAlert() {
   if (titleAlertInterval) clearInterval(titleAlertInterval);
   titleAlertInterval = null;
@@ -424,12 +966,14 @@ function getNotificationSettings() {
 
 function saveNotificationSettings(settings) {
   const normalized = { browser: Boolean(settings?.browser) };
-  const db = readDb();
-  const user = getCurrentUser(db);
+  const user = getCurrentUser();
 
   if (user) {
     user.notifications = { ...(user.notifications || {}), ...normalized };
-    writeDb(db);
+    writeJson(SESSION_KEY, user);
+    saveCurrentProfile({ notifications: user.notifications }).catch(() => {
+      // The local session cache remains the fallback.
+    });
   } else {
     writeJson(NOTIFICATION_SETTINGS_KEY, normalized);
   }
@@ -1043,6 +1587,63 @@ function initMusic() {
   handleSpotifyAuthRedirect();
 }
 
+function getAuthErrorMessage(error) {
+  const code = error?.code || "";
+  if (code.includes("auth/invalid-email")) return "Email inválido.";
+  if (code.includes("auth/user-not-found") || code.includes("auth/wrong-password") || code.includes("auth/invalid-credential")) {
+    return "Email ou senha incorretos.";
+  }
+  if (code.includes("auth/email-already-in-use")) return "Esse email já tem uma conta.";
+  if (code.includes("auth/weak-password")) return "Use uma senha com pelo menos 6 caracteres.";
+  if (code.includes("auth/popup-closed-by-user")) return "Login cancelado antes de terminar.";
+  if (code.includes("auth/popup-blocked")) return "O navegador bloqueou o pop-up de login.";
+  if (code.includes("auth/operation-not-allowed")) return "Ative o login Google no Firebase Console.";
+  if (code.includes("auth/unauthorized-domain")) return "Domínio não autorizado no Firebase. Adicione localhost e 127.0.0.1.";
+  if (code.includes("auth/network-request-failed")) return "Falha de rede ao conectar com o Firebase.";
+  if (code.includes("auth/configuration-not-found")) return "Configuração de Auth não encontrada no Firebase.";
+  return code ? `Não consegui concluir a autenticação agora. (${code})` : "Não consegui concluir a autenticação agora.";
+}
+
+async function saveSignupProfile(firebaseUser, name) {
+  const profile = profileFromFirebaseUser(firebaseUser, {
+    name,
+    email: firebaseUser.email || "",
+    avatar: firebaseUser.photoURL || "",
+    emailConfirmed: Boolean(firebaseUser.emailVerified),
+    notifications: { browser: false },
+  });
+
+  state.firebaseUser = firebaseUser;
+  state.currentUser = profile;
+  state.currentUserEmail = profile.email;
+  writeJson(SESSION_KEY, profile);
+
+  await setDoc(firestoreProfileRef(firebaseUser.uid), {
+    displayName: profile.displayName,
+    email: profile.email,
+    photoURL: profile.photoURL,
+    uid: profile.uid,
+    name: profile.name,
+    avatar: profile.avatar,
+    emailConfirmed: profile.emailConfirmed,
+    notifications: profile.notifications,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+async function handleGoogleSignIn(messageSelector = "#loginMessage") {
+  try {
+    setPlannerLoading(true, "Entrando com Google...");
+    await signInWithPopup(auth, googleProvider);
+    closeModals();
+  } catch (error) {
+    setPlannerLoading(false);
+    console.error("Firebase Google login error:", error);
+    setFormMessage(messageSelector, getAuthErrorMessage(error));
+  }
+}
+
 function initAccount() {
   $("#userButton")?.addEventListener("click", toggleAccountDropdown);
   document.addEventListener("click", (event) => {
@@ -1074,23 +1675,15 @@ function initAccount() {
     event.preventDefault();
     const email = normalizeEmail($("#loginEmail")?.value);
     const password = $("#loginPassword")?.value || "";
-    const db = readDb();
-    const user = db.users.find((item) => item.email === email);
-
-    if (!user) {
-      setFormMessage("#loginMessage", "Conta não encontrada.");
-      return;
+    try {
+      persistPlannerData();
+      setPlannerLoading(true, "Entrando...");
+      await signInWithEmailAndPassword(auth, email, password);
+      closeModals();
+    } catch (error) {
+      setPlannerLoading(false);
+      setFormMessage("#loginMessage", getAuthErrorMessage(error));
     }
-
-    if (!(await passwordMatches(user.passwordHash, password))) {
-      setFormMessage("#loginMessage", "Email ou senha incorretos.");
-      return;
-    }
-
-    persistPlannerData();
-    setSession(user.email);
-    closeModals();
-    refreshAfterAccountChange();
   });
 
   $("#signupForm")?.addEventListener("submit", async (event) => {
@@ -1098,34 +1691,30 @@ function initAccount() {
     const name = ($("#signupName")?.value || "").trim();
     const email = normalizeEmail($("#signupEmail")?.value);
     const password = $("#signupPassword")?.value || "";
-    const db = readDb();
-
     if (!name || !email || !password) {
       setFormMessage("#signupMessage", "Preencha todos os campos.");
       return;
     }
 
-    if (db.users.some((user) => user.email === email)) {
-      setFormMessage("#signupMessage", "Esse email já tem uma conta.");
-      return;
+    try {
+      const guestData = snapshotPlannerData();
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      await saveSignupProfile(credential.user, name);
+      state.todosByDate = guestData.todosByDate || {};
+      state.tasksByDate = guestData.tasksByDate || {};
+      syncCurrentTodos();
+      await persistAllPlannerTasks();
+      closeModals();
+      refreshAfterAccountChange();
+    } catch (error) {
+      setFormMessage("#signupMessage", getAuthErrorMessage(error));
     }
+  });
 
-    const user = {
-      id: createUserId(),
-      name,
-      email,
-      passwordHash: await hashPassword(password),
-      emailConfirmed: false,
-      notifications: { browser: false },
-      createdAt: new Date().toISOString(),
-      planner: snapshotPlannerData(),
-    };
-
-    db.users.push(user);
-    writeDb(db);
-    setSession(email);
-    closeModals();
-    refreshAfterAccountChange();
+  $$("[data-google-login]").forEach((button) => {
+    button.addEventListener("click", () => {
+      handleGoogleSignIn(button.dataset.messageTarget || "#loginMessage");
+    });
   });
 
   renderAccountDropdown();
@@ -1177,7 +1766,10 @@ function deleteActiveTaskMenuTarget() {
   if (activeTaskMenuTarget.type === "todo") {
     const { index } = activeTaskMenuTarget;
     if (state.todos[index]) {
-      state.todos.splice(index, 1);
+      const [removed] = state.todos.splice(index, 1);
+      if (removed?.id) {
+        deleteTaskDocument(removed.id).catch(() => {});
+      }
       persistPlannerData();
       renderTodos();
     }
@@ -1187,7 +1779,10 @@ function deleteActiveTaskMenuTarget() {
     const tasks = getTasks();
     const index = tasks.findIndex((task) => task.id === activeTaskMenuTarget.id);
     if (index >= 0) {
-      tasks.splice(index, 1);
+      const [removed] = tasks.splice(index, 1);
+      if (removed?.id) {
+        deleteTaskDocument(removed.id).catch(() => {});
+      }
       persistPlannerData();
       renderTimeline();
     }
@@ -1211,9 +1806,12 @@ function renderDays() {
 }
 
 function changeCurrentDate(date) {
+  persistPlannerData();
   state.currentDate = date;
+  syncCurrentTodos();
   persistPlannerData();
   renderDays();
+  renderTodos();
   renderTimeline();
 }
 
@@ -1366,7 +1964,8 @@ function renderTodos() {
   if (!list) return;
 
   list.innerHTML = "";
-  state.todos.forEach((todo, index) => {
+  const todos = syncCurrentTodos();
+  todos.forEach((todo, index) => {
     const item = document.createElement("li");
     item.dataset.index = index;
 
@@ -1393,7 +1992,7 @@ function renderTodos() {
   $$(".bullet", list).forEach((bullet) => {
     const toggle = () => {
       const index = Number(bullet.dataset.index);
-      state.todos[index].done = !state.todos[index].done;
+      todos[index].done = !todos[index].done;
       persistPlannerData();
       renderTodos();
     };
@@ -1408,7 +2007,9 @@ function renderTodos() {
 
   $$(".todo-text", list).forEach((input) => {
     input.addEventListener("input", (event) => {
-      state.todos[Number(event.target.dataset.index)].text = event.target.value;
+      const todo = todos[Number(event.target.dataset.index)];
+      if (!todo) return;
+      todo.text = event.target.value;
       persistPlannerData();
     });
   });
@@ -1491,12 +2092,12 @@ function renderTimeline() {
   });
 
   $$(".edit-btn", timeline).forEach((button) => {
-    button.addEventListener("click", (event) => openEditModal(Number(event.currentTarget.dataset.id)));
+    button.addEventListener("click", (event) => openEditModal(event.currentTarget.dataset.id));
   });
 
   $$(".slot-task .bullet", timeline).forEach((bullet) => {
     bullet.addEventListener("click", (event) => {
-      const task = getTasks().find((item) => item.id === Number(event.currentTarget.dataset.id));
+      const task = getTasks().find((item) => item.id === event.currentTarget.dataset.id);
       if (!task) return;
       task.done = !task.done;
       persistPlannerData();
@@ -1645,9 +2246,9 @@ function openAddTimelineTaskModal() {
   $("#editTitle")?.focus();
 }
 
-function createTaskId(tasks) {
-  const highestId = tasks.reduce((highest, task) => Math.max(highest, Number(task.id) || 0), 0);
-  return Math.max(Date.now(), highestId + 1);
+function createTaskId(prefix = "task") {
+  if (window.crypto?.randomUUID) return crypto.randomUUID();
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function closeModals() {
@@ -1656,10 +2257,48 @@ function closeModals() {
   });
 }
 
+async function saveSelectedDay() {
+  const button = $("#saveDayBtn");
+  const label = $("span", button);
+  const originalText = label?.textContent || "Salvar dia";
+
+  if (button) button.disabled = true;
+  if (label) label.textContent = "Salvando...";
+
+  try {
+    syncCurrentTodos();
+    const data = snapshotPlannerData();
+    if (state.currentUser?.uid) {
+      writeJson(createCacheKey(state.currentUser.uid), data);
+      await persistSelectedDateTasks();
+    } else {
+      writeJson(GUEST_KEY, data);
+    }
+
+    button?.classList.add("is-saved");
+    if (label) label.textContent = "Salvo!";
+  } catch {
+    const data = snapshotPlannerData();
+    if (state.currentUser?.uid) {
+      writeJson(createCacheKey(state.currentUser.uid), data);
+    } else {
+      writeJson(GUEST_KEY, data);
+    }
+    if (label) label.textContent = "Salvo local";
+  } finally {
+    window.setTimeout(() => {
+      if (label) label.textContent = originalText;
+      button?.classList.remove("is-saved");
+      if (button) button.disabled = false;
+    }, 1200);
+  }
+}
+
 function initPlanner() {
   if (!$("#timeline")) return;
 
   $("#todoDeleteBtn")?.addEventListener("click", deleteActiveTaskMenuTarget);
+  $("#saveDayBtn")?.addEventListener("click", saveSelectedDay);
 
   $$(".day").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1676,7 +2315,8 @@ function initPlanner() {
   });
 
   $("#addTaskBtn")?.addEventListener("click", () => {
-    state.todos.push({ text: "", done: false });
+    const now = new Date().toISOString();
+    state.todos.push({ id: createTaskId("todo"), text: "", done: false, createdAt: now, updatedAt: now });
     persistPlannerData();
     renderTodos();
   });
@@ -1712,14 +2352,17 @@ function initPlanner() {
     const tasks = getTasks();
     let task = tasks.find((item) => item.id === editingId);
     if (!task && editingId === null) {
+      const now = new Date().toISOString();
       task = {
-        id: createTaskId(tasks),
+        id: createTaskId("timeline"),
         time: "14:30",
         text: "",
         color: "#000000",
         bg: "#ffffff",
         desc: "",
         done: false,
+        createdAt: now,
+        updatedAt: now,
       };
       tasks.push(task);
     }
@@ -1730,6 +2373,7 @@ function initPlanner() {
       task.time = $("#editTime").value || task.time;
       task.color = $("#editColor").value;
       task.bg = $("#editBg").value;
+      task.updatedAt = new Date().toISOString();
       persistPlannerData();
     }
     closeModals();
@@ -1849,6 +2493,7 @@ function resetPomodoro(mode = "focus") {
 }
 
 function moveToBreakPomodoro() {
+  void recordFocusCompletion();
   pomoMode = "break";
   pomoRemaining = pomoBreakTotal;
   if (pomoInterval) pomoEndsAt = Date.now() + pomoRemaining * 1000;
@@ -1962,6 +2607,119 @@ const avatarCropState = {
   baseY: 0,
 };
 
+function formatPomodoroMinutes(minutes) {
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  if (total < 60) return `${total} min`;
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function currentMonthPomodoroSessions() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  return state.pomodoroSessions.filter((session) => {
+    const parsed = parseDateKey(session.date);
+    return parsed && parsed.getFullYear() === year && parsed.getMonth() === month;
+  });
+}
+
+function renderPomodoroMonthGrid() {
+  const grid = $("#pomoMonthGrid");
+  if (!grid) return;
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const totalsByDay = new Map();
+  let totalMinutes = 0;
+
+  currentMonthPomodoroSessions().forEach((session) => {
+    const parsed = parseDateKey(session.date);
+    if (!parsed) return;
+    const day = parsed.getDate();
+    const minutes = Math.max(0, Number(session.minutes) || 0);
+    totalsByDay.set(day, (totalsByDay.get(day) || 0) + minutes);
+    totalMinutes += minutes;
+  });
+
+  const totalLabel = $("#pomoMonthTotal");
+  if (totalLabel) totalLabel.textContent = formatPomodoroMinutes(totalMinutes);
+
+  grid.innerHTML = "";
+  for (let day = 1; day <= daysInMonth(year, month); day += 1) {
+    const minutes = totalsByDay.get(day) || 0;
+    const cell = document.createElement("div");
+    cell.className = `pomo-day-cell${minutes ? " has-time" : ""}`;
+    cell.setAttribute("aria-label", `${day} de ${monthNames[month]}: ${formatPomodoroMinutes(minutes)}`);
+
+    if (minutes) {
+      const strength = clamp(minutes / 120, 0, 1);
+      const saturation = Math.round(42 + strength * 24);
+      const lightness = Math.round(91 - strength * 24);
+      cell.style.setProperty("--pomo-heat", `126 ${saturation}% ${lightness}%`);
+    }
+
+    const number = document.createElement("span");
+    number.className = "pomo-day-number";
+    number.textContent = String(day);
+
+    const time = document.createElement("span");
+    time.className = "pomo-day-time";
+    time.textContent = minutes ? formatPomodoroMinutes(minutes).replace(" min", "m") : "0m";
+
+    cell.append(number, time);
+    grid.appendChild(cell);
+  }
+}
+
+function applyTreeSprite(sprite, type) {
+  const index = clamp(Number(type) || 0, 0, TREE_SPRITE_COUNT - 1);
+  const column = index % TREE_SPRITE_COLUMNS;
+  const row = Math.floor(index / TREE_SPRITE_COLUMNS);
+  sprite.style.backgroundPosition = `${(column / (TREE_SPRITE_COLUMNS - 1)) * 100}% ${(row / (TREE_SPRITE_ROWS - 1)) * 100}%`;
+}
+
+function renderForestPlot() {
+  const layer = $("#forestTrees");
+  if (!layer) return;
+
+  const monthSessions = currentMonthPomodoroSessions();
+  const total = $("#forestTotal");
+  if (total) total.textContent = `${monthSessions.length} ${monthSessions.length === 1 ? "árvore" : "árvores"}`;
+
+  layer.innerHTML = "";
+  if (!monthSessions.length) {
+    const empty = document.createElement("div");
+    empty.className = "forest-empty";
+    empty.textContent = "Sem focos neste mês";
+    layer.appendChild(empty);
+    return;
+  }
+
+  monthSessions.slice(-FOREST_TREE_POSITIONS.length).forEach((session, index) => {
+    const position = FOREST_TREE_POSITIONS[index % FOREST_TREE_POSITIONS.length];
+    const tree = document.createElement("div");
+    const sprite = document.createElement("div");
+    tree.className = "forest-tree";
+    sprite.className = "forest-tree-sprite";
+    tree.style.setProperty("--tree-x", `${position.x}%`);
+    tree.style.setProperty("--tree-y", `${position.y}%`);
+    tree.style.setProperty("--tree-size", `${position.size}px`);
+    tree.style.setProperty("--tree-z", String(Math.round(position.y * 10)));
+    applyTreeSprite(sprite, session.treeType ?? index);
+    tree.appendChild(sprite);
+    layer.appendChild(tree);
+  });
+}
+
+function renderPomodoroProfile() {
+  renderPomodoroMonthGrid();
+  renderForestPlot();
+}
+
 function renderProfilePage() {
   const profilePage = $(".profile-page");
   if (!profilePage) return;
@@ -2006,6 +2764,7 @@ function renderProfilePage() {
     $$("input, button[type='submit']", form).forEach((control) => {
       control.disabled = true;
     });
+    renderPomodoroProfile();
     setFormMessage("#profileMessage", "Faça login para editar seu perfil.");
     return;
   }
@@ -2050,6 +2809,7 @@ function renderProfilePage() {
   }
   if (resetButton) resetButton.disabled = !profileEditing;
   setFormMessage("#profileMessage", "");
+  renderPomodoroProfile();
 }
 
 function generateEmailCode() {
@@ -2323,114 +3083,20 @@ function initProfileSettings() {
 
   $("#emailEditForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    const user = getCurrentUser();
-    if (!user) {
+    if (!getCurrentUser()) {
       setFormMessage("#emailEditMessage", "Faça login para editar o email.");
       return;
     }
-
-    if (emailEditStage === "email") {
-      const newEmail = normalizeEmail($("#newEmailInput")?.value);
-      const db = readDb();
-      if (!newEmail) {
-        setFormMessage("#emailEditMessage", "Digite o novo email.");
-        return;
-      }
-      if (db.users.some((item) => item.email === newEmail && item.email !== user.email)) {
-        setFormMessage("#emailEditMessage", "Esse email já está em uso.");
-        return;
-      }
-
-      pendingNewEmail = newEmail;
-      pendingEmailEditCode = generateEmailCode();
-      emailEditStage = "code";
-      $("#newEmailCodeInput").hidden = false;
-      $("#newEmailCodeLabel").hidden = false;
-      $("#newEmailInput").readOnly = true;
-      $("#emailEditSubmitBtn").textContent = "confirmar código";
-      setFormMessage("#emailEditMessage", `Código enviado para o novo email. Código de teste: ${pendingEmailEditCode}`, true);
-      $("#newEmailCodeInput")?.focus();
-      return;
-    }
-
-    const typedCode = ($("#newEmailCodeInput")?.value || "").trim();
-    if (typedCode !== pendingEmailEditCode) {
-      setFormMessage("#emailEditMessage", "Código incorreto.");
-      return;
-    }
-
-    updateCurrentUser((item) => {
-      item.email = pendingNewEmail;
-      item.emailConfirmed = true;
-      item.emailConfirmationCode = pendingEmailEditCode;
-      item.emailConfirmedAt = new Date().toISOString();
-    });
-    setSession(pendingNewEmail);
-    closeModals();
-    renderProfilePage();
-    renderAccountDropdown();
-    setFormMessage("#profileMessage", "Email atualizado.", true);
+    setFormMessage("#emailEditMessage", "Alterar o email de login no Firebase precisa de reautenticação. O perfil continua salvo no Firestore.");
   });
 
-  $("#passwordEditForm")?.addEventListener("submit", async (event) => {
+  $("#passwordEditForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    const user = getCurrentUser();
-    if (!user) {
+    if (!getCurrentUser()) {
       setFormMessage("#passwordEditMessage", "Faça login para editar a senha.");
       return;
     }
-
-    if (passwordEditStage === "email") {
-      const typedEmail = normalizeEmail($("#passwordEmailInput")?.value);
-      if (typedEmail !== user.email) {
-        setFormMessage("#passwordEditMessage", "Digite o mesmo email da sua conta.");
-        return;
-      }
-
-      pendingPasswordCode = generateEmailCode();
-      passwordEditStage = "code";
-      $("#passwordEmailStep").hidden = true;
-      $("#passwordCodeStep").hidden = false;
-      $("#passwordEditSubmitBtn").textContent = "Verificar código";
-      setFormMessage("#passwordEditMessage", `Código enviado para o email. Código de teste: ${pendingPasswordCode}`, true);
-      $("#passwordCodeInput")?.focus();
-      return;
-    }
-
-    if (passwordEditStage === "code") {
-      const typedCode = ($("#passwordCodeInput")?.value || "").trim();
-      if (typedCode !== pendingPasswordCode) {
-        setFormMessage("#passwordEditMessage", "Código incorreto.");
-        return;
-      }
-
-      passwordEditStage = "new";
-      $("#passwordCodeStep").hidden = true;
-      $("#passwordNewStep").hidden = false;
-      $("#passwordEditSubmitBtn").textContent = "Salvar";
-      setFormMessage("#passwordEditMessage", "");
-      $("#newPasswordInput")?.focus();
-      return;
-    }
-
-    const newPassword = $("#newPasswordInput")?.value || "";
-    const confirmPassword = $("#confirmPasswordInput")?.value || "";
-    if (!newPassword || !confirmPassword) {
-      setFormMessage("#passwordEditMessage", "Preencha as duas senhas.");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setFormMessage("#passwordEditMessage", "As senhas não conferem.");
-      return;
-    }
-
-    const passwordHash = await hashPassword(newPassword);
-    updateCurrentUser((item) => {
-      item.passwordHash = passwordHash;
-      item.passwordUpdatedAt = new Date().toISOString();
-    });
-    closeModals();
-    setFormMessage("#profileMessage", "Senha atualizada.", true);
+    setFormMessage("#passwordEditMessage", "Alterar a senha no Firebase precisa de reautenticação. Use o fluxo de recuperação/segurança do Firebase.");
   });
 
   $("#profileResetBtn")?.addEventListener("click", () => {
@@ -2441,8 +3107,7 @@ function initProfileSettings() {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const db = readDb();
-    const user = getCurrentUser(db);
+    const user = getCurrentUser();
     if (!user) {
       setFormMessage("#profileMessage", "Faça login para salvar alterações.");
       return;
@@ -2463,8 +3128,13 @@ function initProfileSettings() {
     }
 
     user.name = name;
-    if (pendingProfileAvatar) user.avatar = pendingProfileAvatar;
-    writeDb(db);
+    user.displayName = name;
+    if (pendingProfileAvatar) {
+      user.avatar = pendingProfileAvatar;
+      user.photoURL = pendingProfileAvatar;
+    }
+    writeJson(SESSION_KEY, user);
+    await saveCurrentProfile();
     profileEditing = false;
     pendingProfileAvatar = null;
     renderProfilePage();
@@ -2504,9 +3174,62 @@ function initModals() {
 // ===== Inicializar =====
 syncSession();
 loadPlannerData();
+loadPomodoroSessionsFromCache();
 initModals();
 initAccount();
 initMusic();
 initPlanner();
 initProfileSettings();
 renderProfilePage();
+
+onAuthStateChanged(auth, async (firebaseUser) => {
+  const runId = ++authLoadRun;
+  const startedAt = performance.now();
+  const label = `planner-auth-load-${runId}`;
+  console.time(label);
+  stopRealtimeListeners();
+
+  if (firebaseUser) {
+    primeCurrentProfile(firebaseUser);
+    loadPlannerData(firebaseUser.uid);
+    loadPomodoroSessionsFromCache(firebaseUser.uid);
+    refreshPlanner();
+    renderAccountDropdown();
+    renderProfilePage();
+    setPlannerLoading(true);
+
+    const profileWrite = saveAuthProfile(firebaseUser).catch((error) => {
+      console.error("Profile write error:", error);
+    });
+    const profileRealtime = subscribeProfileData(firebaseUser);
+    const tasksRealtime = subscribePlannerData(firebaseUser.uid).then((data) => {
+      if (runId === authLoadRun) {
+        console.log(`Tarefas renderizadas em ${Math.round(performance.now() - startedAt)}ms após onAuthStateChanged.`);
+      }
+      return data;
+    });
+
+    const pomodoroRealtime = subscribePomodoroSessions(firebaseUser.uid);
+
+    state.authReady = true;
+    await Promise.allSettled([profileWrite, profileRealtime, tasksRealtime, pomodoroRealtime]);
+
+    if (runId !== authLoadRun) return;
+    setPlannerLoading(false);
+    console.log(`Carregamento inicial sincronizado em ${Math.round(performance.now() - startedAt)}ms.`);
+    console.timeEnd(label);
+    return;
+  } else {
+    state.firebaseUser = null;
+    setSession(null);
+  }
+
+  state.authReady = true;
+  loadPlannerData();
+  loadPomodoroSessionsFromCache();
+  refreshPlanner();
+  renderAccountDropdown();
+  renderProfilePage();
+  setPlannerLoading(false);
+  console.timeEnd(label);
+});

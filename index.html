@@ -76,6 +76,10 @@
     </div>
   </main>
 
+  <footer class="site-footer">
+    <p>&copy; 2026 Niewe</p>
+  </footer>
+
   <!------------------------------------------ Pop-up calendário ------------------------------------------>
   <div class="modal" id="calendarModal" hidden>
     <div class="modal-content calendar">
@@ -160,6 +164,10 @@
       <input type="email" id="loginEmail" autocomplete="email" required />
       <label for="loginPassword">Senha</label>
       <input type="password" id="loginPassword" autocomplete="current-password" required />
+      <button class="google-login-btn" type="button" data-google-login data-message-target="#loginMessage">
+        <span class="google-mark" aria-hidden="true">G</span>
+        <span>Usar Google</span>
+      </button>
       <p class="form-message" id="loginMessage" aria-live="polite"></p>
       <div class="modal-actions">
         <button class="ghost" type="button" data-close>Cancelar</button>
@@ -178,6 +186,10 @@
       <input type="email" id="signupEmail" autocomplete="email" required />
       <label for="signupPassword">Senha</label>
       <input type="password" id="signupPassword" autocomplete="new-password" required />
+      <button class="google-login-btn" type="button" data-google-login data-message-target="#signupMessage">
+        <span class="google-mark" aria-hidden="true">G</span>
+        <span>Usar Google</span>
+      </button>
       <p class="form-message" id="signupMessage" aria-live="polite"></p>
       <div class="modal-actions">
         <button class="ghost" type="button" data-close>Cancelar</button>
@@ -203,6 +215,10 @@
     </button>
   </div>
 
-  <script src="script.js"></script>
+  <button class="save-day-btn" id="saveDayBtn" type="button">
+    <span>Salvar dia</span>
+  </button>
+
+  <script type="module" src="script.js"></script>
 </body>
 </html>

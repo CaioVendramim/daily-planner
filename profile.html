@@ -15,6 +15,7 @@
   </div>
 
   <main class="profile-page">
+    <div class="profile-layout">
     <section class="settings-shell" aria-labelledby="profileTitle">
       <div class="settings-hero">
         <div>
@@ -65,6 +66,28 @@
         </div>
       </form>
     </section>
+
+      <section class="profile-insights" aria-label="Resumo do pomodoro">
+        <div class="profile-panel pomo-month-panel">
+          <div class="profile-panel-header">
+            <h2>Pomodoro do mês</h2>
+            <p id="pomoMonthTotal">0 min</p>
+          </div>
+          <div class="pomo-month-grid" id="pomoMonthGrid" aria-label="Tempo de pomodoro por dia do mês"></div>
+        </div>
+
+        <div class="profile-panel forest-panel">
+          <div class="profile-panel-header">
+            <h2>Jardim de foco</h2>
+            <p id="forestTotal">0 árvores</p>
+          </div>
+          <div class="forest-plot" id="forestPlot" aria-label="Árvores plantadas ao concluir Focus Time">
+            <div class="forest-ground" aria-hidden="true"></div>
+            <div class="forest-trees" id="forestTrees"></div>
+          </div>
+        </div>
+      </section>
+    </div>
   </main>
 
   <!-- Login -->
@@ -75,6 +98,10 @@
       <input type="email" id="loginEmail" autocomplete="email" required />
       <label for="loginPassword">Senha</label>
       <input type="password" id="loginPassword" autocomplete="current-password" required />
+      <button class="google-login-btn" type="button" data-google-login data-message-target="#loginMessage">
+        <span class="google-mark" aria-hidden="true">G</span>
+        <span>Usar Google</span>
+      </button>
       <p class="form-message" id="loginMessage" aria-live="polite"></p>
       <div class="modal-actions">
         <button class="ghost" type="button" data-close>Cancelar</button>
@@ -93,6 +120,10 @@
       <input type="email" id="signupEmail" autocomplete="email" required />
       <label for="signupPassword">Senha</label>
       <input type="password" id="signupPassword" autocomplete="new-password" required />
+      <button class="google-login-btn" type="button" data-google-login data-message-target="#signupMessage">
+        <span class="google-mark" aria-hidden="true">G</span>
+        <span>Usar Google</span>
+      </button>
       <p class="form-message" id="signupMessage" aria-live="polite"></p>
       <div class="modal-actions">
         <button class="ghost" type="button" data-close>Cancelar</button>
@@ -184,6 +215,6 @@
     </div>
   </div>
 
-  <script src="script.js"></script>
+  <script type="module" src="script.js"></script>
 </body>
 </html>
