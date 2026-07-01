@@ -45,7 +45,7 @@
       <aside class="side">
         <div class="card music-card">
           <h3>Música</h3>
-          <p id="musicStatus">Conecte Spotify, Apple Music ou YouTube Music para tocar sua playlist.</p>
+          <p id="musicStatus">Conecte Spotify ou YouTube Music para tocar sua playlist.</p>
           <button class="ghost" id="musicConnectBtn" type="button">Conectar</button>
           <div class="music-embed" id="musicEmbed" hidden></div>
         </div>
@@ -142,14 +142,11 @@
     <div class="modal-content music-modal">
       <header><h3>Escolher música</h3><button class="close" type="button" data-close>×</button></header>
       <div class="music-provider-grid" id="musicProviderGrid">
-        <button type="button" class="music-provider active" data-music-provider="spotify">
-          <span>Spotify</span>
+        <button type="button" class="music-provider spotify-provider active" data-music-provider="spotify" aria-label="Entrar com Spotify">
+          <img class="provider-badge" src="images/spotify.png" alt="Spotify" />
         </button>
-        <button type="button" class="music-provider" data-music-provider="apple">
-          <span>Apple Music</span>
-        </button>
-        <button type="button" class="music-provider" data-music-provider="youtube">
-          <span>YouTube Music</span>
+        <button type="button" class="music-provider youtube-provider" data-music-provider="youtube" aria-label="Entrar com YouTube Music">
+          <img class="provider-badge" src="images/youtube.png" alt="YouTube Music" />
         </button>
       </div>
       <div class="music-panel" id="musicPanel"></div>

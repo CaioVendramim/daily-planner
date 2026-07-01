@@ -36,9 +36,6 @@ const MUSIC_CONFIG = {
     clientId: "42062fe7d8404242a0496b793d9b3957",
     scopes: ["playlist-read-private", "playlist-read-collaborative", "user-library-read", "user-read-private"],
   },
-  apple: {
-    developerToken: "",
-  },
   youtube: {
     clientId: "1004772828278-st44da5dqlfdcig62soabruhvn40o2ui.apps.googleusercontent.com",
     scopes: "https://www.googleapis.com/auth/youtube.readonly",
@@ -1062,7 +1059,6 @@ function refreshAfterAccountChange() {
 // ===== Music integrations =====
 const musicProviderNames = {
   spotify: "Spotify",
-  apple: "Apple Music",
   youtube: "YouTube Music",
 };
 
@@ -1171,7 +1167,7 @@ async function createSpotifyChallenge(verifier) {
 function providerConfigMessage(provider) {
   if (provider === "spotify") return "Para login real, preencha MUSIC_CONFIG.spotify.clientId no script.js e cadastre esta URL como Redirect URI no painel do Spotify.";
   if (provider === "youtube") return "Para login real, preencha MUSIC_CONFIG.youtube.clientId no script.js e habilite a YouTube Data API no Google Cloud.";
-  return "Para login real, preencha MUSIC_CONFIG.apple.developerToken no script.js. O token da Apple precisa ser gerado no backend com sua chave privada.";
+  return "";
 }
 
 function renderMusicLibrary(items) {
@@ -1227,9 +1223,6 @@ function parseMusicUrl(provider, value) {
       if (video) return { provider, type: "video", id: video, title: "YouTube Music" };
     }
 
-    if (provider === "apple" && url.hostname.includes("music.apple.com")) {
-      return { provider, type: "url", embedUrl: raw.replace("https://music.apple.com", "https://embed.music.apple.com"), title: "Apple Music" };
-    }
   } catch {
     return null;
   }
@@ -1253,8 +1246,6 @@ function playMusicEmbed(provider, item) {
       ? `https://www.youtube.com/embed/videoseries?list=${encodeURIComponent(item.id)}`
       : `https://www.youtube.com/embed/${encodeURIComponent(item.id)}`;
     height = 180;
-  } else if (provider === "apple") {
-    height = 175;
   }
 
   if (!src) {
@@ -1289,19 +1280,13 @@ function renderMusicPanel(provider) {
   const actions = document.createElement("div");
   actions.className = "music-actions";
 
-  const login = document.createElement("button");
-  login.type = "button";
-  login.className = "primary";
-  login.textContent = `Entrar com ${musicProviderNames[provider]}`;
-  login.addEventListener("click", () => connectMusicProvider(provider));
-
   const load = document.createElement("button");
   load.type = "button";
-  load.className = "ghost";
+  load.className = "music-action-btn music-action-secondary";
   load.textContent = "Carregar biblioteca";
   load.addEventListener("click", () => loadMusicLibrary(provider));
 
-  actions.append(login, load);
+  actions.append(load);
 
   const urlRow = document.createElement("div");
   urlRow.className = "music-url-row";
@@ -1313,7 +1298,7 @@ function renderMusicPanel(provider) {
 
   const play = document.createElement("button");
   play.type = "button";
-  play.className = "primary";
+  play.className = "music-action-btn music-play-btn";
   play.textContent = "Tocar";
   play.addEventListener("click", () => {
     const parsed = parseMusicUrl(provider, input.value);
@@ -1326,15 +1311,11 @@ function renderMusicPanel(provider) {
 
   urlRow.append(input, play);
 
-  const note = document.createElement("p");
-  note.className = "music-config-note";
-  note.textContent = providerConfigMessage(provider);
-
   const library = document.createElement("div");
   library.className = "music-library";
   library.id = "musicLibrary";
 
-  panel.append(message, actions, urlRow, note, library);
+  panel.append(message, actions, urlRow, library);
 }
 
 function openMusicModal() {
@@ -1526,53 +1507,14 @@ async function loadYouTubeLibrary(accessToken = getMusicAccessToken("youtube")) 
   }
 }
 
-async function connectAppleMusic() {
-  if (!MUSIC_CONFIG.apple.developerToken) {
-    setMusicMessage(providerConfigMessage("apple"));
-    return;
-  }
-
-  try {
-    await loadExternalScript("https://js-cdn.music.apple.com/musickit/v3/musickit.js", "musicKitJs");
-    await new Promise((resolve) => {
-      if (window.MusicKit) resolve();
-      document.addEventListener("musickitloaded", resolve, { once: true });
-    });
-
-    const music = MusicKit.getInstance?.() || MusicKit.configure({
-      developerToken: MUSIC_CONFIG.apple.developerToken,
-      app: { name: "Daily Planner", build: "1.0.0" },
-    });
-
-    await music.authorize();
-    const response = await music.api.music("/v1/me/library/playlists", { limit: 25 });
-    const playlists = response?.data?.data || response?.data || [];
-    const items = playlists.map((playlist) => ({
-      provider: "apple",
-      type: "url",
-      title: playlist.attributes?.name || "Playlist",
-      meta: "Apple Music",
-      image: playlist.attributes?.artwork?.url?.replace("{w}x{h}", "100x100") || "",
-      embedUrl: playlist.attributes?.url?.replace("https://music.apple.com", "https://embed.music.apple.com") || "",
-    })).filter((item) => item.embedUrl);
-
-    renderMusicLibrary(items);
-    setMusicMessage("Escolha uma playlist.", true);
-  } catch {
-    setMusicMessage("Nao consegui entrar no Apple Music.");
-  }
-}
-
 function connectMusicProvider(provider) {
   if (provider === "spotify") startSpotifyLogin();
   if (provider === "youtube") connectYouTubeMusic();
-  if (provider === "apple") connectAppleMusic();
 }
 
 function loadMusicLibrary(provider) {
   if (provider === "spotify") loadSpotifyLibrary();
   if (provider === "youtube") loadYouTubeLibrary();
-  if (provider === "apple") connectAppleMusic();
 }
 
 function initMusic() {
@@ -1582,6 +1524,7 @@ function initMusic() {
       selectedMusicProvider = button.dataset.musicProvider;
       $$(".music-provider").forEach((item) => item.classList.toggle("active", item === button));
       renderMusicPanel(selectedMusicProvider);
+      connectMusicProvider(selectedMusicProvider);
     });
   });
   handleSpotifyAuthRedirect();
