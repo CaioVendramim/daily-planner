@@ -23,6 +23,12 @@ import {
   where,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB8wHh14IL4vYAhNoFOH6YQwvYy4qqXlrs",
@@ -38,6 +44,7 @@ const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
 export {
@@ -57,5 +64,8 @@ export {
   deleteDoc,
   query,
   where,
-  serverTimestamp
+  serverTimestamp,
+  storageRef,
+  uploadBytes,
+  getDownloadURL
 };

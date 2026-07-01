@@ -1,6 +1,7 @@
 import {
   auth,
   db,
+  storage,
   googleProvider,
   signInWithPopup,
   createUserWithEmailAndPassword,
@@ -12,7 +13,10 @@ import {
   setDoc,
   onSnapshot,
   deleteDoc,
-  serverTimestamp
+  serverTimestamp,
+  storageRef,
+  uploadBytes,
+  getDownloadURL
 } from "./firebase.js";
 
 // ===== Helpers =====
@@ -24,6 +28,7 @@ const SESSION_KEY = "dailyPlannerSessionV1";
 const GUEST_KEY = "dailyPlannerGuestDataV1";
 const FIREBASE_CACHE_PREFIX = "dailyPlannerFirebaseCacheV1";
 const POMODORO_CACHE_PREFIX = "dailyPlannerPomodoroSessionsV1";
+const BACKGROUND_CACHE_PREFIX = "dailyPlannerBackgroundV1";
 const NOTIFICATION_SETTINGS_KEY = "dailyPlannerNotificationSettingsV1";
 const WHEEL_ITEM_HEIGHT = 40;
 const YEAR_START = 1900;
@@ -43,6 +48,8 @@ const MUSIC_CONFIG = {
 };
 const MUSIC_OAUTH_KEY = "dailyPlannerMusicOAuthV1";
 const MUSIC_TOKENS_KEY = "dailyPlannerMusicTokensV1";
+const BACKGROUND_MODES = new Set(["cover", "fill", "center", "stretch", "repeat"]);
+const DEFAULT_BACKGROUND_SETTINGS = { imageUrl: "", storagePath: "", mode: "cover", opacity: 100 };
 
 let selectedMusicProvider = "spotify";
 let youtubeTokenClient = null;
@@ -50,6 +57,9 @@ let profileUnsubscribe = null;
 let tasksUnsubscribe = null;
 let pomodoroUnsubscribe = null;
 let authLoadRun = 0;
+let pendingBackgroundFile = null;
+let pendingBackgroundSettings = null;
+let pendingBackgroundPreviewUrl = "";
 
 const monthNames = [
   "Janeiro",
@@ -168,6 +178,308 @@ function removeJson(key) {
   }
 }
 
+function createBackgroundCacheKey(uid = state.currentUser?.uid) {
+  return `${BACKGROUND_CACHE_PREFIX}:${uid || "guest"}`;
+}
+
+function normalizeBackgroundSettings(settings = {}) {
+  const source = settings || {};
+  const mode = BACKGROUND_MODES.has(source.mode) ? source.mode : DEFAULT_BACKGROUND_SETTINGS.mode;
+  const opacity = clamp(Number(source.opacity ?? DEFAULT_BACKGROUND_SETTINGS.opacity), 0, 100);
+  const imageUrl = typeof source.imageUrl === "string"
+    ? source.imageUrl
+    : (typeof source.url === "string" ? source.url : "");
+  const storagePath = typeof source.storagePath === "string" ? source.storagePath : "";
+
+  return { imageUrl, storagePath, mode, opacity };
+}
+
+function getCachedBackgroundSettings(uid = state.currentUser?.uid) {
+  return normalizeBackgroundSettings(readJson(createBackgroundCacheKey(uid), DEFAULT_BACKGROUND_SETTINGS));
+}
+
+function writeBackgroundCache(uid, settings) {
+  writeJson(createBackgroundCacheKey(uid), normalizeBackgroundSettings(settings));
+}
+
+function cssUrl(value) {
+  return `url(${JSON.stringify(String(value || ""))})`;
+}
+
+function backgroundModeCss(mode) {
+  const selected = BACKGROUND_MODES.has(mode) ? mode : "cover";
+  if (selected === "fill") return { position: "center", repeat: "no-repeat", size: "contain" };
+  if (selected === "center") return { position: "center", repeat: "no-repeat", size: "auto" };
+  if (selected === "stretch") return { position: "center", repeat: "no-repeat", size: "100% 100%" };
+  if (selected === "repeat") return { position: "left top", repeat: "repeat", size: "auto" };
+  return { position: "center", repeat: "no-repeat", size: "cover" };
+}
+
+function setBackgroundStyles(target, settings, { preview = false } = {}) {
+  const normalized = normalizeBackgroundSettings(settings);
+  const label = target ? $("span", target) : null;
+
+  if (!target || !normalized.imageUrl) {
+    if (target) {
+      target.classList?.remove("has-image");
+      target.style.backgroundImage = "";
+      target.style.backgroundPosition = "";
+      target.style.backgroundRepeat = "";
+      target.style.backgroundSize = "";
+    }
+    if (label) label.textContent = preview ? "Escolha uma imagem" : "Previa";
+    return;
+  }
+
+  const mode = backgroundModeCss(normalized.mode);
+  const wash = clamp((100 - normalized.opacity) / 100, 0, 1);
+  const gradient = `linear-gradient(rgba(250,250,250,${wash}), rgba(250,250,250,${wash}))`;
+
+  target.classList?.add("has-image");
+  target.style.backgroundImage = `${gradient}, ${cssUrl(normalized.imageUrl)}`;
+  target.style.backgroundPosition = `center, ${mode.position}`;
+  target.style.backgroundRepeat = `no-repeat, ${mode.repeat}`;
+  target.style.backgroundSize = `auto, ${mode.size}`;
+  if (label) label.textContent = "Previa";
+}
+
+function applyUserBackground(settings = null) {
+  const normalized = normalizeBackgroundSettings(settings);
+  const body = document.body;
+  if (!body) return;
+
+  if (!normalized.imageUrl) {
+    body.classList.remove("has-user-background");
+    body.style.backgroundImage = "";
+    body.style.backgroundPosition = "";
+    body.style.backgroundRepeat = "";
+    body.style.backgroundSize = "";
+    body.style.backgroundAttachment = "";
+    return;
+  }
+
+  const mode = backgroundModeCss(normalized.mode);
+  const wash = clamp((100 - normalized.opacity) / 100, 0, 1);
+  const gradient = `linear-gradient(rgba(250,250,250,${wash}), rgba(250,250,250,${wash}))`;
+
+  body.classList.add("has-user-background");
+  body.style.backgroundImage = `${gradient}, ${cssUrl(normalized.imageUrl)}`;
+  body.style.backgroundPosition = `center, ${mode.position}`;
+  body.style.backgroundRepeat = `no-repeat, ${mode.repeat}`;
+  body.style.backgroundSize = `auto, ${mode.size}`;
+  body.style.backgroundAttachment = "fixed, fixed";
+}
+
+function renderBackgroundButton() {
+  const button = $("#backgroundOpenBtn");
+  if (!button) return;
+
+  const user = getCurrentUser();
+  button.hidden = !user;
+  button.classList.toggle("has-custom-background", Boolean(user?.background?.imageUrl));
+}
+
+function setBackgroundMessage(text, success = false) {
+  setFormMessage("#backgroundMessage", text, success);
+}
+
+function setBackgroundControls(settings) {
+  const normalized = normalizeBackgroundSettings(settings);
+  const selected = $(`input[name="backgroundMode"][value="${normalized.mode}"]`);
+  const opacity = $("#backgroundOpacityInput");
+  const output = $("#backgroundOpacityValue");
+
+  if (selected) selected.checked = true;
+  if (opacity) opacity.value = String(Math.round(normalized.opacity));
+  if (output) {
+    output.value = `${Math.round(normalized.opacity)}%`;
+    output.textContent = output.value;
+  }
+}
+
+function readBackgroundControls() {
+  const checked = $("input[name='backgroundMode']:checked");
+  const opacity = $("#backgroundOpacityInput");
+  return normalizeBackgroundSettings({
+    ...(pendingBackgroundSettings || DEFAULT_BACKGROUND_SETTINGS),
+    mode: checked?.value || pendingBackgroundSettings?.mode,
+    opacity: opacity?.value ?? pendingBackgroundSettings?.opacity,
+  });
+}
+
+function updateBackgroundPreview() {
+  pendingBackgroundSettings = readBackgroundControls();
+  setBackgroundControls(pendingBackgroundSettings);
+  setBackgroundStyles($("#backgroundPreview"), pendingBackgroundSettings, { preview: true });
+}
+
+function revokePendingBackgroundPreview() {
+  if (pendingBackgroundPreviewUrl) URL.revokeObjectURL(pendingBackgroundPreviewUrl);
+  pendingBackgroundPreviewUrl = "";
+}
+
+function openBackgroundModal() {
+  closeAccountDropdown();
+
+  const user = getCurrentUser();
+  if (!user) {
+    openAuthModal("loginModal");
+    return;
+  }
+
+  closeModals();
+  revokePendingBackgroundPreview();
+  pendingBackgroundFile = null;
+  pendingBackgroundSettings = normalizeBackgroundSettings(user.background || getCachedBackgroundSettings(user.uid));
+
+  setBackgroundControls(pendingBackgroundSettings);
+  setBackgroundStyles($("#backgroundPreview"), pendingBackgroundSettings, { preview: true });
+  setBackgroundMessage("");
+
+  const input = $("#backgroundUploadInput");
+  if (input) input.value = "";
+
+  const modal = $("#backgroundModal");
+  if (modal) modal.hidden = false;
+}
+
+function getBackgroundUploadExtension(file) {
+  const fromName = /\.([a-z0-9]+)$/i.exec(file?.name || "")?.[1]?.toLowerCase();
+  if (fromName) return fromName === "jpeg" ? "jpg" : fromName;
+  if (file?.type === "image/png") return "png";
+  if (file?.type === "image/webp") return "webp";
+  if (file?.type === "image/gif") return "gif";
+  return "jpg";
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+async function prepareBackgroundUpload(file) {
+  const type = file.type || "image/jpeg";
+  if (type === "image/gif" || type === "image/svg+xml") {
+    return { blob: file, contentType: type, extension: getBackgroundUploadExtension(file) };
+  }
+
+  try {
+    const image = await loadImageElement(await readFileAsDataUrl(file));
+    const maxSide = 2200;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(image, 0, 0, width, height);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", .86));
+    if (blob) return { blob, contentType: "image/jpeg", extension: "jpg" };
+  } catch (error) {
+    console.warn("Background compression skipped:", error);
+  }
+
+  return { blob: file, contentType: type, extension: getBackgroundUploadExtension(file) };
+}
+
+async function uploadBackgroundFile(user, file) {
+  const prepared = await prepareBackgroundUpload(file);
+  const path = `users/${user.uid}/backgrounds/background-${Date.now()}.${prepared.extension}`;
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, prepared.blob, { contentType: prepared.contentType });
+  return { imageUrl: await getDownloadURL(ref), storagePath: path };
+}
+
+function handleBackgroundUpload(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    setBackgroundMessage("Escolha um arquivo de imagem.");
+    return;
+  }
+
+  revokePendingBackgroundPreview();
+  pendingBackgroundFile = file;
+  pendingBackgroundPreviewUrl = URL.createObjectURL(file);
+  pendingBackgroundSettings = normalizeBackgroundSettings({
+    ...readBackgroundControls(),
+    imageUrl: pendingBackgroundPreviewUrl,
+    storagePath: "",
+  });
+  setBackgroundControls(pendingBackgroundSettings);
+  setBackgroundStyles($("#backgroundPreview"), pendingBackgroundSettings, { preview: true });
+  setBackgroundMessage("Imagem pronta para previsualizar.", true);
+}
+
+function resetPendingBackground() {
+  revokePendingBackgroundPreview();
+  pendingBackgroundFile = null;
+  pendingBackgroundSettings = normalizeBackgroundSettings(DEFAULT_BACKGROUND_SETTINGS);
+  setBackgroundControls(pendingBackgroundSettings);
+  setBackgroundStyles($("#backgroundPreview"), pendingBackgroundSettings, { preview: true });
+  setBackgroundMessage("O fundo padrao sera usado ao salvar.", true);
+}
+
+async function saveBackgroundSettings() {
+  const user = getCurrentUser();
+  if (!user) {
+    openAuthModal("loginModal");
+    return;
+  }
+
+  const button = $("#backgroundSaveBtn");
+  if (button) button.disabled = true;
+
+  try {
+    let settings = readBackgroundControls();
+    if (pendingBackgroundFile) {
+      setBackgroundMessage("Enviando imagem...");
+      const uploaded = await uploadBackgroundFile(user, pendingBackgroundFile);
+      settings = normalizeBackgroundSettings({ ...settings, ...uploaded });
+    }
+
+    const localBackground = settings.imageUrl ? settings : null;
+    const firestoreBackground = localBackground
+      ? { ...localBackground, updatedAt: serverTimestamp() }
+      : null;
+
+    user.background = localBackground;
+    writeJson(SESSION_KEY, user);
+    writeBackgroundCache(user.uid, localBackground || DEFAULT_BACKGROUND_SETTINGS);
+    applyUserBackground(localBackground);
+    renderBackgroundButton();
+
+    await saveCurrentProfile({ background: firestoreBackground });
+
+    revokePendingBackgroundPreview();
+    pendingBackgroundFile = null;
+    pendingBackgroundSettings = normalizeBackgroundSettings(localBackground);
+    setBackgroundControls(pendingBackgroundSettings);
+    setBackgroundStyles($("#backgroundPreview"), pendingBackgroundSettings, { preview: true });
+    setBackgroundMessage("Plano de fundo salvo.", true);
+  } catch (error) {
+    console.error("Background save error:", error);
+    setBackgroundMessage("Nao consegui salvar o fundo no Firebase. Verifique as regras do Storage/Firestore.");
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function initBackgroundSettings() {
+  $("#backgroundOpenBtn")?.addEventListener("click", openBackgroundModal);
+  $("#backgroundUploadInput")?.addEventListener("change", handleBackgroundUpload);
+  $("#backgroundResetBtn")?.addEventListener("click", resetPendingBackground);
+  $("#backgroundSaveBtn")?.addEventListener("click", saveBackgroundSettings);
+  $$("input[name='backgroundMode']").forEach((input) => input.addEventListener("change", updateBackgroundPreview));
+  $("#backgroundOpacityInput")?.addEventListener("input", updateBackgroundPreview);
+}
+
 // ===== Planner data =====
 function defaultTodos() {
   const now = new Date().toISOString();
@@ -211,6 +523,7 @@ function syncSession() {
   const cached = readJson(SESSION_KEY, null);
   state.currentUser = cached?.uid ? cached : null;
   state.currentUserEmail = state.currentUser?.email || null;
+  applyUserBackground(state.currentUser?.background || null);
 }
 
 function setSession(user) {
@@ -223,6 +536,8 @@ function setSession(user) {
     state.currentUserEmail = null;
     removeJson(SESSION_KEY);
   }
+  applyUserBackground(state.currentUser?.background || null);
+  renderBackgroundButton();
 }
 
 function normalizeTodo(todo, index) {
@@ -346,6 +661,7 @@ function profileFromFirebaseUser(firebaseUser, profile = {}) {
   const email = firebaseUser?.email || profile.email || "";
   const displayName = profile.displayName || profile.name || firebaseUser?.displayName || email.split("@")[0] || "";
   const photoURL = profile.photoURL || profile.avatar || firebaseUser?.photoURL || "";
+  const background = normalizeBackgroundSettings(profile.background || {});
   return {
     uid: firebaseUser?.uid || profile.uid || "",
     id: firebaseUser?.uid || profile.uid || "",
@@ -354,6 +670,7 @@ function profileFromFirebaseUser(firebaseUser, profile = {}) {
     email,
     photoURL,
     avatar: photoURL,
+    background: background.imageUrl ? background : null,
     emailConfirmed: Boolean(profile.emailConfirmed || firebaseUser?.emailVerified),
     notifications: { browser: Boolean(profile.notifications?.browser) },
     createdAt: profile.createdAt || firebaseUser?.metadata?.creationTime || "",
@@ -374,6 +691,7 @@ function currentProfilePayload(extra = {}) {
     uid: user.uid || "",
     name: displayName,
     avatar: photoURL,
+    background: user.background ? normalizeBackgroundSettings(user.background) : null,
     emailConfirmed: Boolean(user.emailConfirmed),
     notifications: { browser: Boolean(user.notifications?.browser) },
     updatedAt: serverTimestamp(),
@@ -412,6 +730,8 @@ function primeCurrentProfile(firebaseUser) {
   state.currentUser = profileFromFirebaseUser(firebaseUser, profile);
   state.currentUserEmail = state.currentUser.email;
   writeJson(SESSION_KEY, state.currentUser);
+  applyUserBackground(state.currentUser.background);
+  renderBackgroundButton();
   return state.currentUser;
 }
 
@@ -506,7 +826,10 @@ function subscribeProfileData(firebaseUser) {
       state.currentUser = profileFromFirebaseUser(firebaseUser, profile);
       state.currentUserEmail = state.currentUser.email;
       writeJson(SESSION_KEY, state.currentUser);
+      writeBackgroundCache(firebaseUser.uid, state.currentUser.background || DEFAULT_BACKGROUND_SETTINGS);
+      applyUserBackground(state.currentUser.background);
       renderAccountDropdown();
+      renderBackgroundButton();
       renderProfilePage();
 
       if (firstSnapshot) {
@@ -1053,6 +1376,7 @@ function refreshAfterAccountChange() {
   loadPlannerData();
   refreshPlanner();
   renderAccountDropdown();
+  renderBackgroundButton();
   renderProfilePage();
 }
 
@@ -3120,9 +3444,11 @@ loadPlannerData();
 loadPomodoroSessionsFromCache();
 initModals();
 initAccount();
+initBackgroundSettings();
 initMusic();
 initPlanner();
 initProfileSettings();
+renderBackgroundButton();
 renderProfilePage();
 
 onAuthStateChanged(auth, async (firebaseUser) => {

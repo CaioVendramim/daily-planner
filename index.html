@@ -14,6 +14,11 @@
     <div class="account-dropdown" id="accountDropdown" hidden></div>
   </div>
 
+  <button class="background-open-btn" id="backgroundOpenBtn" type="button" hidden>
+    <span class="background-open-icon" aria-hidden="true"></span>
+    <span>Plano de fundo</span>
+  </button>
+
   <main class="app planner-app">
     <!------------------------------------------ Carrossel circular de dias ---------------------------------->
     <section class="days-carousel" aria-label="Seletor de dias">
@@ -150,6 +155,63 @@
         </button>
       </div>
       <div class="music-panel" id="musicPanel"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="backgroundModal" hidden>
+    <div class="modal-content background-modal">
+      <header>
+        <div>
+          <p class="modal-eyebrow">Personalizar</p>
+          <h3>Plano de fundo</h3>
+        </div>
+        <button class="close" type="button" data-close>Ã—</button>
+      </header>
+
+      <div class="background-preview" id="backgroundPreview">
+        <span>Previa</span>
+      </div>
+
+      <div class="background-upload-row">
+        <label class="background-upload-btn" for="backgroundUploadInput">Upload</label>
+        <input type="file" id="backgroundUploadInput" accept="image/*" hidden />
+        <button class="ghost background-reset-btn" id="backgroundResetBtn" type="button">Usar padrao</button>
+      </div>
+
+      <fieldset class="background-options" aria-label="Modo do plano de fundo">
+        <label class="background-option">
+          <input type="radio" name="backgroundMode" value="cover" />
+          <span>Cover</span>
+        </label>
+        <label class="background-option">
+          <input type="radio" name="backgroundMode" value="fill" />
+          <span>Fill</span>
+        </label>
+        <label class="background-option">
+          <input type="radio" name="backgroundMode" value="center" />
+          <span>Center</span>
+        </label>
+        <label class="background-option">
+          <input type="radio" name="backgroundMode" value="stretch" />
+          <span>Stretch</span>
+        </label>
+        <label class="background-option">
+          <input type="radio" name="backgroundMode" value="repeat" />
+          <span>Multi</span>
+        </label>
+      </fieldset>
+
+      <label class="background-opacity-control" for="backgroundOpacityInput">
+        <span>Opacidade</span>
+        <input type="range" id="backgroundOpacityInput" min="0" max="100" step="1" />
+        <output id="backgroundOpacityValue">100%</output>
+      </label>
+
+      <p class="form-message" id="backgroundMessage" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="ghost" type="button" data-close>Cancelar</button>
+        <button class="primary" type="button" id="backgroundSaveBtn">Salvar fundo</button>
+      </div>
     </div>
   </div>
 
