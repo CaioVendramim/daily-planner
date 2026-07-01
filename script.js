@@ -16,7 +16,8 @@ import {
   serverTimestamp,
   storageRef,
   uploadBytes,
-  getDownloadURL
+  getDownloadURL,
+  deleteObject
 } from "./firebase.js";
 
 // ===== Helpers =====
@@ -50,6 +51,7 @@ const MUSIC_OAUTH_KEY = "dailyPlannerMusicOAuthV1";
 const MUSIC_TOKENS_KEY = "dailyPlannerMusicTokensV1";
 const BACKGROUND_MODES = new Set(["cover", "fill", "center", "stretch", "repeat"]);
 const DEFAULT_BACKGROUND_SETTINGS = { imageUrl: "", storagePath: "", mode: "cover", opacity: 100 };
+const BACKGROUND_STORAGE_FILENAME = "current-background.jpg";
 
 let selectedMusicProvider = "spotify";
 let youtubeTokenClient = null;
@@ -389,10 +391,26 @@ async function prepareBackgroundUpload(file) {
 
 async function uploadBackgroundFile(user, file) {
   const prepared = await prepareBackgroundUpload(file);
-  const path = `users/${user.uid}/backgrounds/background-${Date.now()}.${prepared.extension}`;
+  const path = `users/${user.uid}/backgrounds/${BACKGROUND_STORAGE_FILENAME}`;
   const ref = storageRef(storage, path);
   await uploadBytes(ref, prepared.blob, { contentType: prepared.contentType });
-  return { imageUrl: await getDownloadURL(ref), storagePath: path };
+  const downloadUrl = await getDownloadURL(ref);
+  const cacheBuster = `v=${Date.now()}`;
+  return {
+    imageUrl: `${downloadUrl}${downloadUrl.includes("?") ? "&" : "?"}${cacheBuster}`,
+    storagePath: path,
+  };
+}
+
+async function deleteBackgroundFile(path) {
+  if (!path) return;
+
+  try {
+    await deleteObject(storageRef(storage, path));
+  } catch (error) {
+    if (error?.code === "storage/object-not-found") return;
+    console.warn("Background delete error:", error);
+  }
 }
 
 function handleBackgroundUpload(event) {
@@ -437,6 +455,7 @@ async function saveBackgroundSettings() {
   if (button) button.disabled = true;
 
   try {
+    const previousStoragePath = user.background?.storagePath || getCachedBackgroundSettings(user.uid).storagePath;
     let settings = readBackgroundControls();
     if (pendingBackgroundFile) {
       setBackgroundMessage("Enviando imagem...");
@@ -456,6 +475,9 @@ async function saveBackgroundSettings() {
     renderBackgroundButton();
 
     await saveCurrentProfile({ background: firestoreBackground });
+    if (previousStoragePath && previousStoragePath !== localBackground?.storagePath) {
+      await deleteBackgroundFile(previousStoragePath);
+    }
 
     revokePendingBackgroundPreview();
     pendingBackgroundFile = null;
